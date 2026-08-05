@@ -1,9 +1,13 @@
-# Generated build output
+# Generated build output (the independently authored x86 shim artifact is kept)
 build/
+!build/
+!build/Wlbrw32.dll
+!build/Wlbrw32.dll.sha256
 *.obj
 *.exp
 *.lib
 *.dll
+!build/Wlbrw32.dll
 
 # User-local installation and generated media/archive mirror
 Mirror/
@@ -25,6 +29,7 @@ archive/Mirror/
 Atlas.log
 Atlas.ini
 Wlbrw32.dll
+!build/Wlbrw32.dll
 
 # Local environment
 .vscode/

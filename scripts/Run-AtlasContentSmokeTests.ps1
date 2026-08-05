@@ -193,3 +193,4 @@ $summaryPath = Join-Path $OutputDirectory "content-smoke-$timestamp.txt"
 $results
 Write-Output "RESULT_CSV=$csvPath"
 Write-Output "RESULT_SUMMARY=$summaryPath"
+if (@($results | Where-Object { -not $_.Passed }).Count) { exit 1 }

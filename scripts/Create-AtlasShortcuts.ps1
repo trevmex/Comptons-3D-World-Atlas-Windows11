@@ -1,11 +1,16 @@
 $ErrorActionPreference = 'Stop'
 
-$base = Join-Path $env:LOCALAPPDATA 'Comptons 3D World Atlas Deluxe'
-$launcher = Join-Path $base 'Launch-ComptonsAtlas.ps1'
-$atlas = Join-Path $env:LOCALAPPDATA 'Programs\Comptons 3D World Atlas Deluxe\atlas.exe'
+$base = $PSScriptRoot
+$configPath = Join-Path $base 'Atlas-Config.json'
+if (-not (Test-Path -LiteralPath $configPath)) { throw "Atlas-Config.json is missing from $base. Run the installer first." }
+$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+$launcher = $config.Launcher
+$atlas = $config.AtlasExecutable
 $folder = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Compton's Home Library\Compton's 3D World Atlas Deluxe"
-$powershell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+$powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 
+if (-not (Test-Path -LiteralPath $launcher)) { throw "The Atlas launcher is missing: $launcher" }
+if (-not (Test-Path -LiteralPath $atlas)) { throw "The Atlas executable is missing: $atlas" }
 New-Item -ItemType Directory -Path $folder -Force | Out-Null
 $shell = New-Object -ComObject WScript.Shell
 

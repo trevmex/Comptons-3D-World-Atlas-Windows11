@@ -1,80 +1,88 @@
 # Compton's 3D World Atlas Deluxe on Windows 11
 
-A reproducible, user-local compatibility toolkit for **Compton's 3D World Atlas Deluxe v3.2** (Windows 95). It replaces the obsolete Intel Indeo playback path, preserves the disc's PCM audio, provides scaled Superplay video, and replaces the retired Online service with a local mirror of static Internet Archive snapshots.
+A reversible, user-local compatibility layer for **Compton's 3D World Atlas Deluxe v3.2** (Windows 95). It converts the disc's obsolete Indeo movies to Microsoft Video 1, preserves their PCM audio, uses the built-in Superplay fullscreen path, and replaces the retired Online service with a complete practical static mirror of the 1997-1999 Internet Archive captures for the Atlas-era 3datlas.com and comptons.com sites.
 
-## Important: bring your own disc
+## One-install promise and the physical-media boundary
 
-This repository does **not** include `ATLAS.EXE`, CD media, converted videos, proprietary DLLs, or the generated archive mirror. Use it only with a lawfully owned copy of the original CD. The original installer should be run first; this toolkit leaves the original Program Files installation untouched and creates a user-local runtime.
+This repository does **not** contain `ATLAS.EXE`, CD media, proprietary Atlas DLLs, converted movies, or generated archive snapshots. The installer succeeds **only** when your lawful original CD is mounted and identified as volume `3DATLAS`. The disc must remain mounted while the program runs because Atlas reads its maps, chunks, images, sounds, help, and statistics from the CD.
 
-The original live `3datlas.com` CGI service was discontinued. The Online menu cannot be restored as a live service. The replacement is read-only and offline: static 1998 pages and assets are downloaded from the Internet Archive and same-site links are rewritten to local files.
+The installer does **not** run the 1998 setup program, install Indeo/Video for Windows, modify Program Files, write legacy browser registry associations, or install AOL/Internet Explorer/DDE components. It copies the small Atlas runtime directly from the physical disc into a user-local directory and creates a separate converted-media tree.
 
-## Quick start
+On a normal Windows 11 system, one elevated or non-elevated PowerShell command is all that is required:
 
-1. Insert the Atlas CD and mount it as **D:**. Confirm `D:\ATLAS.EXE` exists and the volume label is `3DATLAS`.
-2. Run the disc's original setup into the normal `Compton's Home Library` directory.
-3. Install prerequisites:
-   - Windows PowerShell 5+
-   - `ffmpeg.exe` and `ffprobe.exe` on `PATH`
-   - Node.js 18+
-   - Visual Studio Build Tools with the x86 C++ workload
-4. From an elevated PowerShell only when the original installer requires it, run:
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\Install-AtlasWindows11.ps1
+```
 
-   ```powershell
-   Set-ExecutionPolicy -Scope Process Bypass
-   .\scripts\Install-AtlasWindows11.ps1
-   ```
+The script automatically installs the user-scoped LGPL FFmpeg tools and Node.js LTS with Windows Package Manager (`winget`) when they are absent. Internet access is required during installation to obtain those tools and the historical archive. No Visual Studio installation is required: the repository carries the independently authored x86 archive shim artifact and also retains its reproducible C build.
 
-5. Start **Compton's 3D World Atlas Deluxe - Windows 11 Fullscreen** from the generated Start-menu folder.
+The defaults are `D:` for the CD, `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe` for generated data, and `%LOCALAPPDATA%\Programs\Comptons 3D World Atlas Deluxe` for the runtime. The CD can be assigned another drive with `-DiscDrive`, but the chosen volume must still be labeled `3DATLAS`.
 
-The disc must remain mounted while Atlas runs. The current implementation intentionally uses D: because the 1998 executable performs its own CD drive check.
+## What installation does
 
-## Video and audio
+1. Verifies the physical media, label, and required Atlas runtime files.
+2. Copies only the original runtime files to a user-local directory; the disc and any existing Program Files installation remain untouched.
+3. Converts every disc AVI that uses Indeo to Microsoft Video 1 (`MSVC`) while checking dimensions, stream counts, audio codec, sample rate, and channels. Unchanged supported AVIs are copied; PCM audio is never resampled.
+4. Writes a generated `Atlas-Config.json` so launchers and tests honor non-default paths.
+5. Downloads the static archive, rewrites captured same-site links to local files, removes clickable network/form targets, adds an offline CSP, checks every manifest file, and atomically replaces only a complete mirror.
+6. Builds or installs the x86 `Wlbrw32.dll` replacement and records its SHA-256 hash.
+7. Creates windowed and built-in Superplay fullscreen Start-menu shortcuts.
 
-- All effective Indeo 3 AVI files are transcoded to Microsoft Video 1 (`MSVC`), which Windows 11 can decode without installing an obsolete system codec.
-- Original PCM audio streams are copied unchanged; Atlas starts with volume 5, music enabled, and narration enabled.
-- For scaled video, open a video and choose **Display → Superplay** (or press `Ctrl+Shift+.` / `Ctrl+>`). Atlas's native `SJE_FULLSCREEN` path scales the video to the primary display, preserving its aspect ratio rather than stretching 4:3 artwork to 16:9.
-- The installer does not install Indeo, AOL, Internet Explorer, Netscape, DDE components, or browser plug-ins.
+If archive synchronization or media conversion fails, installation fails rather than claiming that an incomplete offline copy is ready. `-SkipArchiveMirror` exists only for repair/development work and marks the generated profile `NOT_SYNCED`.
 
-## Local Online archive
+## Video, audio, and fullscreen
 
-`Sync-AtlasLocalArchive.js` downloads the static 1997–1999 HTML/image/CSS captures for `3datlas.com` and `comptons.com`, then rewrites links between captured pages to local relative paths. The generated files are under:
+- Indeo 3/4/5 files are transcoded to Microsoft Video 1, a codec Windows 11 can decode without an obsolete system codec.
+- Original PCM audio streams are copied unchanged and verified after conversion. Atlas starts with volume 5, music enabled, and narration enabled.
+- The fullscreen shortcut selects Atlas's native `SJE_FULLSCREEN`/Superplay path. It preserves the original 4:3 artwork instead of stretching it to 16:9.
+- The original executable and disc content are never modified.
+
+## Complete local Online archive
+
+`Sync-AtlasLocalArchive.js` queries the Internet Archive CDX index for both `www` and apex hostnames, selects one representative 1997-1999 capture for every unique static URL, downloads the supported document/assets, records capture URLs, byte counts, SHA-256 hashes and failures, and rewrites links into the local mirror:
 
 ```text
 %LOCALAPPDATA%\Comptons 3D World Atlas Deluxe\Online Archive\Mirror
 ```
 
-The top-level Atlas Online commands open local files:
+The mirror includes the captured HTML, image, CSS/text/document and other static archive resources exposed by the CDX index. It is validated as a closed local tree; unresolved links become local unavailable markers rather than opening a live site. The native shim opens these local top-level commands:
 
 - Downloadable Extras
 - 3D World Atlas Home
 - Compton's Home
-- Context-sensitive Links → a generated local page for the current entry request
+- Archived site map
+- Context-sensitive links for a selected city, country, topic, map pin, or other entry
 
-The last item is important: selecting **New York**, a country, topic, map pin, or another entry and choosing its Online link sends a request containing the entry ID/name. The shim captures that request and writes a local `Mirror/3datlas/entry-links-*.html` page; it no longer collapses every entry into the site map or contacts the retired CGI service. Preserved country/topic/city material is linked from that local page. The original dynamic server response was not archived for every entry, so the generated page is an honest local context index rather than invented live content.
+The original dynamic `atlas.cgi` database response was not preserved for every object. For those requests the shim writes `3datlas\entry-links-*.html`, records the requested name/ID/coordinates, and links to the closest preserved country, Atlas, geography, and site-map material. That is an honest local context index, not invented live content.
 
-Do not run old installers or enter credentials into historical pages.
+Historical pages are treated as read-only documentation. Do not run old installers, submit archived forms, follow unavailable external links, or enter credentials into historical sign-in pages.
 
-## Tests
+## Verification
 
-After installation, useful checks are:
+After installation:
 
 ```powershell
 .\scripts\Test-Installation.ps1
+.\scripts\Validate-AtlasLocalArchive.ps1
+.\scripts\Validate-AtlasMedia.ps1
 .\scripts\Test-AtlasGameMoviesMci.ps1
-.\scripts\Test-AtlasOnlineArchive.ps1
 .\scripts\Run-AtlasDisplayTests.ps1
 .\scripts\Run-AtlasContentSmokeTests.ps1
+.\scripts\Test-AtlasAudioSession.ps1
+.\scripts\Validate-AtlasWindows11Setup.ps1
 ```
 
-`Test-AtlasAudioSession.ps1` samples the Windows Core Audio peak meter for a running Atlas process while a narrated/video item is playing. `Validate-AtlasMedia.ps1` performs exhaustive FFmpeg decode and codec checks.
+The last three groups are interactive/runtime checks. Static installation, archive, and media validation do not require Atlas to be running.
 
 ## Repository layout
 
-- `scripts/` — installer, launcher, media conversion, archive sync, and test automation
-- `src/` — source for the safe `Wlbrw32.dll` replacement
-- `archive/` — local archive portal template; generated snapshots are not committed
-- `docs/` — design and troubleshooting notes
+- `scripts/` — one-step installer, tool bootstrap, launcher, media conversion, archive sync, and tests
+- `src/` — source for the safe x86 `Wlbrw32.dll` replacement
+- `build/Wlbrw32.dll` — reproducible-project build artifact used when a compiler is unavailable
+- `archive/` — local archive portal templates; generated snapshots are not committed
+- `docs/` — architecture, coverage, and troubleshooting documentation
 
-## Redistribution
+## Redistribution and rights
 
-The compatibility scripts and native shim source are released under the MIT license in `LICENSE`. The commercial Atlas executable, disc content, and Internet Archive captures remain subject to their respective rights and are deliberately excluded from this repository.
+The compatibility scripts and native shim source/artifact are released under the MIT license in `LICENSE`. FFmpeg is obtained separately through its LGPL package and is not bundled here. The commercial Atlas executable, disc content, generated converted media, and Internet Archive captures remain subject to their respective rights and are deliberately excluded from this public repository.

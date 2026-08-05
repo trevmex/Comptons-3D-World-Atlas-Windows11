@@ -3,19 +3,21 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# Run an unmodified copy of Atlas.exe from a user-local directory. This keeps
-# the Windows 11 media configuration and archive-only WonderLink replacement
-# out of Program Files; the original installation remains untouched.
-$atlasDirectory = Join-Path $env:LOCALAPPDATA 'Programs\Comptons 3D World Atlas Deluxe'
-$atlasExecutable = Join-Path $atlasDirectory 'atlas.exe'
-$atlasLog = Join-Path $atlasDirectory 'Atlas.log'
+# Read the generated per-user profile so a non-default install remains
+# launchable. The physical disc path is deliberately part of that profile.
+$workspaceDirectory = $PSScriptRoot
+$configPath = Join-Path $workspaceDirectory 'Atlas-Config.json'
+if (-not (Test-Path -LiteralPath $configPath)) { throw "Atlas-Config.json is missing from $workspaceDirectory. Run the installer first." }
+$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+$atlasDirectory = $config.RuntimeDirectory
+$atlasExecutable = $config.AtlasExecutable
+$atlasLog = $config.AtlasLog
 $archiveShim = Join-Path $atlasDirectory 'Wlbrw32.dll'
 $archiveShimHashFile = Join-Path $atlasDirectory 'Wlbrw32.dll.sha256'
-$archiveShimSha256 = if (Test-Path -LiteralPath $archiveShimHashFile) {
+$archiveShimSha256 = if ($config.ShimSha256) { $config.ShimSha256.ToUpperInvariant() } elseif (Test-Path -LiteralPath $archiveShimHashFile) {
     ((Get-Content -LiteralPath $archiveShimHashFile -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
-} else {
-    '70A108CECEAA9FC1D6902ABE18859B230B2A98C0ADADCF5C76CF09E3F49D1A34'
-}
+} else { '' }
+$discExe = Join-Path $config.DiscDrive 'ATLAS.EXE'
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName System.Windows.Forms
@@ -191,8 +193,8 @@ if (-not (Test-Path -LiteralPath $atlasExecutable)) {
 
 $actualShimHash = if (Test-Path -LiteralPath $archiveShim) {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $archiveShim).Hash
-}
-if ($actualShimHash -ne $archiveShimSha256) {
+} else { '' }
+if (-not $archiveShimSha256 -or $actualShimHash -ne $archiveShimSha256) {
     [void] [Windows.Forms.MessageBox]::Show(
         "The verified Windows 11 Online Archive component is missing or changed.`n`n$archiveShim",
         "Compton's 3D World Atlas Deluxe",
@@ -202,9 +204,9 @@ if ($actualShimHash -ne $archiveShimSha256) {
     exit 4
 }
 
-if (-not (Test-Path -LiteralPath 'D:\ATLAS.EXE')) {
+if (-not (Test-Path -LiteralPath $discExe)) {
     [void] [Windows.Forms.MessageBox]::Show(
-        'Please insert the Compton''s 3D World Atlas Deluxe disc in drive D: and try again.',
+        "Please insert the Compton's 3D World Atlas Deluxe disc in drive $($config.DiscDrive) and try again.",
         "Compton's 3D World Atlas Deluxe",
         'OK',
         'Information'
@@ -249,12 +251,8 @@ if (-not $process) {
         )
     }
 
-    $archiveRootConfig = Join-Path $PSScriptRoot 'ArchiveRoot.txt'
-    $archiveRoot = if (Test-Path -LiteralPath $archiveRootConfig) {
-        (Get-Content -LiteralPath $archiveRootConfig -Raw).Trim()
-    } else {
-        Join-Path $env:LOCALAPPDATA 'Comptons 3D World Atlas Deluxe\Online Archive'
-    }
+    $archiveRoot = $config.ArchiveDirectory
+    if (-not $archiveRoot) { throw 'The generated Atlas configuration has no archive directory.' }
     $env:ATLAS_ARCHIVE_ROOT = $archiveRoot
     $process = Start-Process -FilePath $atlasExecutable -WorkingDirectory $atlasDirectory -PassThru
 

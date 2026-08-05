@@ -103,3 +103,4 @@ $csv = Join-Path $OutputDirectory "display-tests-$stamp.csv"
 $all | Export-Csv -LiteralPath $csv -NoTypeInformation -Encoding UTF8
 $all
 Write-Output "RESULT_CSV=$csv"
+if (@($all | Where-Object { -not $_.Passed }).Count) { exit 1 }

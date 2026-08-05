@@ -1,19 +1,20 @@
 'use strict';
 
 /*
- * Download the small, static portions of the 1998 Atlas and Compton's sites
- * needed by the Atlas Online menu.  This intentionally uses the Internet
- * Archive's raw replay (id_) and rewrites same-site links to files under
- * Mirror, so the installed compatibility layer can work without a live
- * Compton's server or a browser plug-in.
+ * Build a complete, practical offline copy of the static 1997-1999 pages
+ * captured for the Atlas-era 3datlas.com and comptons.com sites. The CDX
+ * index is the source of truth; one representative capture is selected for
+ * every unique URL and all downloaded files are checksummed in a manifest.
  *
- * No CD content is included by this script.  The generated Mirror directory
- * is machine-local and should not be committed to a public repository unless
- * the operator has permission to redistribute the archived pages/assets.
+ * This tool deliberately does not claim to recreate the old atlas.cgi
+ * database. The native shim renders a local context page for those requests.
+ * Generated snapshots are machine-local because the historical material may
+ * have redistribution restrictions.
  */
 
 const fs = require('fs');
 const fsp = fs.promises;
+const crypto = require('crypto');
 const path = require('path');
 const { URL } = require('url');
 
@@ -21,100 +22,157 @@ const root = __dirname;
 const mirrorRoot = process.env.ATLAS_ARCHIVE_MIRROR_ROOT
   ? path.resolve(process.env.ATLAS_ARCHIVE_MIRROR_ROOT)
   : path.join(root, 'Mirror');
-const manifestRoot = path.join(mirrorRoot, 'manifests');
-const userAgent = 'Comptons-Atlas-Windows11-ArchiveMirror/1.0 (+https://github.com/)';
-const concurrency = Math.max(1, Number(process.env.ATLAS_ARCHIVE_CONCURRENCY || 8));
-const retryCount = 3;
+const stagingRoot = `${mirrorRoot}.staging-${process.pid}`;
+const manifestRoot = path.join(stagingRoot, 'manifests');
+const userAgent = 'Comptons-Atlas-Windows11-ArchiveMirror/2.0 (+https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11)';
+const concurrency = Math.max(1, Math.min(16, Number(process.env.ATLAS_ARCHIVE_CONCURRENCY || 6)));
+const retryCount = 5;
+const requestTimeoutMs = 60000;
+const blankImage = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+const mimeFilter = 'mimetype:(text/html|image/.*|text/css|application/javascript|application/x-javascript|text/plain|text/xml|application/xml|application/json|application/pdf|application/octet-stream|application/zip|application/x-zip-compressed|font/.*)';
 
 const sites = [
   {
-    host: 'www.3datlas.com',
+    id: '3datlas',
     folder: '3datlas',
-    anchor: '19980421214146',
-    cdx: 'https://web.archive.org/cdx/search/cdx?url=www.3datlas.com/*&from=1997&to=1999&output=json&fl=timestamp,original,statuscode,mimetype,digest,length&filter=statuscode:200&filter=mimetype:(text/html|image/.*|text/css|application/javascript)&collapse=digest&limit=20000'
+    aliases: ['www.3datlas.com', '3datlas.com'],
+    anchor: '19980421214146'
   },
   {
-    host: 'www.comptons.com',
+    id: 'comptons',
     folder: 'comptons',
-    anchor: '19980521123132',
-    cdx: 'https://web.archive.org/cdx/search/cdx?url=www.comptons.com/*&from=1997&to=1999&output=json&fl=timestamp,original,statuscode,mimetype,digest,length&filter=statuscode:200&filter=mimetype:(text/html|image/.*|text/css|application/javascript)&collapse=digest&limit=20000'
+    aliases: ['www.comptons.com', 'comptons.com'],
+    anchor: '19980521123132'
   }
 ];
+
+for (const site of sites) {
+  site.cdxUrls = site.aliases.map(host => {
+    const params = new URLSearchParams({
+      url: `${host}/*`,
+      from: '1997',
+      to: '1999',
+      output: 'json',
+      fl: 'timestamp,original,statuscode,mimetype,digest,length',
+      filter: `statuscode:200`,
+      collapse: 'digest',
+      limit: '20000'
+    });
+    // A second filter is appended rather than folded into the status filter
+    // because CDX treats each filter as an independent expression.
+    return `https://web.archive.org/cdx/search/cdx?${params.toString()}&filter=${encodeURIComponent(mimeFilter)}`;
+  });
+}
+
+const siteByHost = new Map();
+for (const site of sites) for (const host of site.aliases) siteByHost.set(host, site);
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function parseRetryAfter(value) {
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(1000, seconds * 1000);
+  const date = Date.parse(value || '');
+  return Number.isFinite(date) ? Math.max(1000, date - Date.now()) : 0;
+}
+
 async function fetchBytes(url) {
   let lastError;
   for (let attempt = 1; attempt <= retryCount; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
       const response = await fetch(url, {
         redirect: 'follow',
+        signal: controller.signal,
         headers: { 'User-Agent': userAgent, 'Accept': '*/*' }
       });
       const bytes = Buffer.from(await response.arrayBuffer());
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status} (${bytes.length} bytes)`);
+        const error = new Error(`HTTP ${response.status} (${bytes.length} bytes)`);
+        error.retryAfter = response.headers.get('retry-after');
+        throw error;
       }
       return { bytes, contentType: response.headers.get('content-type') || '' };
     } catch (error) {
       lastError = error;
-      if (attempt < retryCount) await sleep(500 * attempt);
+      if (attempt < retryCount) {
+        const retryAfter = parseRetryAfter(error && error.retryAfter);
+        await sleep(retryAfter || Math.min(30000, 750 * (2 ** (attempt - 1))));
+      }
+    } finally {
+      clearTimeout(timer);
     }
   }
   throw lastError;
 }
 
 function parseTimestamp(value) {
-  const number = Number(String(value).replace(/[^0-9]/g, '').slice(0, 14));
+  const digits = String(value).replace(/[^0-9]/g, '').slice(0, 14);
+  const number = Number(digits);
   return Number.isFinite(number) ? number : Number.MAX_SAFE_INTEGER;
 }
 
-function canonicalOriginal(original) {
+function hashText(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+function decodePathname(value) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(value || '/');
+  } catch (_) {
+    throw new Error(`Invalid URL pathname: ${value}`);
+  }
+  pathname = pathname.replace(/\\/g, '/');
+  if (pathname.indexOf('\0') >= 0) throw new Error('NUL in URL pathname');
+  const parts = pathname.split('/');
+  if (parts.some(part => part === '..')) throw new Error(`Path traversal in URL pathname: ${value}`);
+  const safe = parts.filter(part => part && part !== '.').map(part =>
+    part.replace(/[<>:"|?*]/g, '_')
+  );
+  return '/' + safe.join('/');
+}
+
+function canonicalOriginal(site, original) {
   const url = new URL(original);
   const host = url.hostname.toLowerCase();
-  let pathname = decodeURIComponent(url.pathname || '/');
-  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
+  if (!site.aliases.includes(host)) throw new Error(`Unexpected host ${host} for ${site.id}`);
+  let pathname = decodePathname(url.pathname);
   if (pathname.endsWith('/')) pathname += 'index.html';
-  // CDX can expose URL-escaped separators. Do not allow them to escape Mirror.
-  pathname = path.posix.normalize(pathname).replace(/^\.\.(\/|$)+/, '');
-  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
-  let relative = pathname.slice(1);
-  if (!relative) relative = 'index.html';
-  // Dynamic CGI paths without an extension can collide with captured child
-  // paths on disk (for example cgi-bin/login and cgi-bin/login/...). Keep the
-  // historical response as a deterministic HTML file instead.
+  if (pathname === '/') pathname = '/index.html';
+  let relative = pathname.slice(1) || 'index.html';
+  const hasQuery = url.href.indexOf('?') >= 0;
   const lastSegment = relative.split('/').pop();
-  if (!url.search && lastSegment && !path.posix.extname(lastSegment)) {
-    relative = `${relative}__endpoint.html`;
-  }
-  if (url.search) {
-    const query = Buffer.from(url.search.slice(1)).toString('hex');
-    relative += `__query_${query}.html`;
+  if (hasQuery) {
+    relative += `__query_${hashText(url.search.slice(1)).slice(0, 32)}.html`;
+  } else if (lastSegment && !path.posix.extname(lastSegment)) {
+    relative += '__endpoint.html';
   }
   return {
     host,
-    key: `${host}${pathname.toLowerCase()}${url.search}`,
+    key: `${site.id}${pathname.toLowerCase()}${url.search}`,
     relative,
     originalUrl: url
   };
 }
 
 function localRelativePath(site, relative) {
-  return path.join(site.folder, ...relative.split('/'));
+  return path.posix.join(site.folder, ...relative.split('/'));
 }
 
 function entryFor(site, row) {
-  const original = canonicalOriginal(row.original);
-  if (original.host !== site.host) return null;
+  if (!row || !row.original) return null;
+  const original = canonicalOriginal(site, row.original);
   return {
     site,
     timestamp: String(row.timestamp),
     original: row.original,
     status: row.statuscode,
-    mime: row.mimetype,
-    digest: row.digest,
+    mime: row.mimetype || '',
+    digest: row.digest || '',
     length: Number(row.length || 0),
     key: original.key,
     relative: original.relative,
@@ -126,10 +184,14 @@ function entryFor(site, row) {
 function selectEntries(site, rows) {
   const candidates = new Map();
   for (const row of rows) {
-    const entry = entryFor(site, row);
-    if (!entry) continue;
-    if (!candidates.has(entry.key)) candidates.set(entry.key, []);
-    candidates.get(entry.key).push(entry);
+    try {
+      const entry = entryFor(site, row);
+      if (!entry) continue;
+      if (!candidates.has(entry.key)) candidates.set(entry.key, []);
+      candidates.get(entry.key).push(entry);
+    } catch (error) {
+      process.stderr.write(`Skipping invalid CDX row for ${site.id}: ${error.message}\n`);
+    }
   }
 
   const anchor = parseTimestamp(site.anchor);
@@ -146,7 +208,11 @@ function selectEntries(site, rows) {
 }
 
 function isHtml(entry, contentType) {
-  return /\.html?$/i.test(entry.relative) || /text\/html/i.test(entry.mime) || /text\/html/i.test(contentType);
+  return /\.(?:html?|shtml|map)$/i.test(entry.relative) || /text\/html/i.test(entry.mime) || /text\/html/i.test(contentType);
+}
+
+function isCss(entry, contentType) {
+  return /\.css$/i.test(entry.relative) || /text\/css/i.test(entry.mime) || /text\/css/i.test(contentType);
 }
 
 function splitReference(value) {
@@ -154,60 +220,122 @@ function splitReference(value) {
   return { address: match ? match[1] : String(value), fragment: match && match[2] ? match[2] : '' };
 }
 
-function findMappedEntry(entriesByKey, siteByHost, baseOriginal, value) {
+function isNetworkReference(value) {
+  return /^(?:https?:|\/\/)/i.test(String(value).trim());
+}
+
+function findMappedEntry(entriesByKey, baseOriginal, value) {
   const split = splitReference(value);
-  if (!split.address || /^(?:data|javascript|mailto|tel):/i.test(split.address)) return null;
+  const address = split.address.trim();
+  if (!address) return { value: split.fragment || address, local: true };
+  if (/^data:/i.test(address)) return { value: address + split.fragment, local: true };
+  if (/^javascript:/i.test(address)) return { value: '#archive-script', local: false };
+  if (/^(?:mailto|tel):/i.test(address)) return { value: '#archive-external', local: false };
 
   let resolved;
   try {
-    resolved = new URL(split.address, baseOriginal);
+    resolved = new URL(address, baseOriginal);
   } catch (_) {
-    return null;
+    return { value: '#archive-missing', local: false };
   }
-  const host = resolved.hostname.toLowerCase();
-  const site = siteByHost.get(host);
-  if (!site) return null;
-
-  const normalized = canonicalOriginal(resolved);
+  const site = siteByHost.get(resolved.hostname.toLowerCase());
+  if (!site) return { value: '#archive-external', local: false };
+  let normalized;
+  try {
+    normalized = canonicalOriginal(site, resolved.href);
+  } catch (_) {
+    return { value: '#archive-missing', local: false };
+  }
   const entry = entriesByKey.get(normalized.key);
-  if (!entry) return null;
-  return { entry, fragment: split.fragment, resolved };
+  if (!entry) return { value: '#archive-missing', local: false };
+  return { value: entry, fragment: split.fragment, local: true };
 }
 
 function replacementFor(currentEntry, mapped) {
+  if (!mapped.local || typeof mapped.value === 'string') return mapped.value;
   const from = path.posix.dirname(currentEntry.relative);
-  let result = path.posix.relative(from, mapped.entry.relative).replace(/\\/g, '/');
-  if (!result) result = path.posix.basename(mapped.entry.relative);
+  let result = path.posix.relative(from, mapped.value.relative).replace(/\\/g, '/');
+  if (!result) result = path.posix.basename(mapped.value.relative);
   if (!result.startsWith('.')) result = `./${result}`;
-  return result + mapped.fragment;
+  return result + (mapped.fragment || '');
 }
 
-function rewriteHtml(text, entry, entriesByKey, siteByHost) {
-  let output = text;
+function replacementForAttribute(currentEntry, base, attribute, value, entriesByKey) {
+  const mapped = findMappedEntry(entriesByKey, base, value);
+  if (mapped.local) return replacementFor(currentEntry, mapped);
+  if (/^(?:src|poster|background)$/i.test(attribute)) return blankImage;
+  return mapped.value;
+}
+
+function rewriteHtml(text, entry, entriesByKey) {
   const base = new URL(entry.original);
-  const attributePattern = /\b(?:href|src|action|poster|background)\s*=\s*(["'])(.*?)\1/gi;
-  output = output.replace(attributePattern, (whole, quote, value) => {
-    const mapped = findMappedEntry(entriesByKey, siteByHost, base, value.trim());
-    if (!mapped) return whole;
-    return whole.slice(0, whole.indexOf(quote) + 1) + replacementFor(entry, mapped) + quote;
+  let output = text;
+  const attributePattern = /\b(href|src|action|poster|background)\s*=\s*(?:(["'])(.*?)\2|([^\s>]+))/gis;
+  output = output.replace(attributePattern, (whole, attribute, quote, quotedValue, bareValue) => {
+    const value = quote ? quotedValue : bareValue;
+    const replacement = replacementForAttribute(entry, base, attribute, value.trim(), entriesByKey);
+    return `${attribute}="${replacement.replace(/"/g, '&quot;')}"`;
   });
 
-  // The old pages occasionally put URLs in CSS-style url(...), even though
-  // most assets are ordinary IMG/FRAME attributes.
-  output = output.replace(/url\(\s*(["']?)([^)"']+)\1\s*\)/gi, (whole, quote, value) => {
-    const mapped = findMappedEntry(entriesByKey, siteByHost, base, value.trim());
-    if (!mapped) return whole;
-    return `url(${quote}${replacementFor(entry, mapped)}${quote})`;
+  output = output.replace(/\bsrcset\s*=\s*(["'])(.*?)\1/gis, (whole, quote, value) => {
+    const rewritten = value.split(',').map(candidate => {
+      const parts = candidate.trim().split(/\s+/);
+      if (!parts[0]) return candidate;
+      parts[0] = replacementForAttribute(entry, base, 'src', parts[0], entriesByKey);
+      return parts.join(' ');
+    }).join(', ');
+    return `srcset=${quote}${rewritten}${quote}`;
   });
+
+  output = output.replace(/url\(\s*(["']?)([^)"']+)\1\s*\)/gi, (whole, quote, value) => {
+    const replacement = replacementForAttribute(entry, base, 'src', value.trim(), entriesByKey);
+    return `url(${quote}${replacement}${quote})`;
+  });
+
+  output = output.replace(/(content\s*=\s*["'][^"']*?url=)([^"']+)/gi, (whole, prefix, value) =>
+    prefix + replacementForAttribute(entry, base, 'href', value, entriesByKey)
+  );
+
+  // Local copies are documentation, not executable web applications. This
+  // blocks old scripts, plugins, forms, and network requests in modern Edge.
+  const csp = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; base-uri \'none\'; object-src \'none\'; form-action \'none\'; connect-src \'none\'; script-src \'none\'">';
+  if (!/<meta[^>]+http-equiv=["']Content-Security-Policy["']/i.test(output)) {
+    output = /<head\b[^>]*>/i.test(output)
+      ? output.replace(/<head\b[^>]*>/i, match => `${match}${csp}`)
+      : csp + output;
+  }
+  return output;
+}
+
+function rewriteCss(text, entry, entriesByKey) {
+  const base = new URL(entry.original);
+  let output = text.replace(/url\(\s*(["']?)([^)"']+)\1\s*\)/gi, (whole, quote, value) => {
+    const replacement = replacementForAttribute(entry, base, 'src', value.trim(), entriesByKey);
+    return `url(${quote}${replacement}${quote})`;
+  });
+  output = output.replace(/(@import\s+)(["'])(.*?)\2/gi, (whole, prefix, quote, value) =>
+    prefix + quote + replacementForAttribute(entry, base, 'href', value.trim(), entriesByKey) + quote
+  );
   return output;
 }
 
 async function readCdx(site) {
-  const response = await fetchBytes(site.cdx);
-  const rows = JSON.parse(response.bytes.toString('utf8'));
-  if (!Array.isArray(rows) || rows.length < 2) throw new Error(`Empty CDX response for ${site.host}`);
-  const headers = rows[0];
-  return rows.slice(1).map(values => Object.fromEntries(headers.map((key, index) => [key, values[index]])));
+  const allRows = [];
+  const seen = new Set();
+  for (const cdxUrl of site.cdxUrls) {
+    const response = await fetchBytes(cdxUrl);
+    let rows;
+    try { rows = JSON.parse(response.bytes.toString('utf8')); }
+    catch (error) { throw new Error(`CDX returned invalid JSON for ${site.id}: ${error.message}`); }
+    if (!Array.isArray(rows) || rows.length < 2) throw new Error(`Empty CDX response for ${site.id}`);
+    const headers = rows[0];
+    for (const values of rows.slice(1)) {
+      const row = Object.fromEntries(headers.map((key, index) => [key, values[index]]));
+      const identity = `${row.timestamp}|${row.original}|${row.digest}`;
+      if (!seen.has(identity)) { seen.add(identity); allRows.push(row); }
+    }
+  }
+  return allRows;
 }
 
 async function writeJson(file, value) {
@@ -215,37 +343,55 @@ async function writeJson(file, value) {
   await fsp.writeFile(file, JSON.stringify(value, null, 2) + '\n', 'utf8');
 }
 
+async function removeIfExists(file) {
+  await fsp.rm(file, { recursive: true, force: true });
+}
+
+async function replaceMirror() {
+  const parent = path.dirname(mirrorRoot);
+  await fsp.mkdir(parent, { recursive: true });
+  const backup = `${mirrorRoot}.previous-${Date.now()}`;
+  if (fs.existsSync(mirrorRoot)) await fsp.rename(mirrorRoot, backup);
+  try {
+    await fsp.rename(stagingRoot, mirrorRoot);
+  } catch (error) {
+    if (fs.existsSync(backup) && !fs.existsSync(mirrorRoot)) await fsp.rename(backup, mirrorRoot);
+    throw error;
+  }
+  await removeIfExists(backup);
+}
+
 async function main() {
-  await fsp.mkdir(mirrorRoot, { recursive: true });
+  await removeIfExists(stagingRoot);
   await fsp.mkdir(manifestRoot, { recursive: true });
 
   const all = [];
   const selectedBySite = new Map();
   for (const site of sites) {
-    process.stdout.write(`Reading CDX for ${site.host}...\n`);
+    process.stdout.write(`Reading CDX for ${site.aliases.join(', ')}...\n`);
     const rows = await readCdx(site);
     await writeJson(path.join(manifestRoot, `${site.folder}-cdx.json`), rows);
     const { selected } = selectEntries(site, rows);
-    selectedBySite.set(site.host, selected);
+    selectedBySite.set(site.id, selected);
     all.push(...selected);
     process.stdout.write(`  ${selected.length} unique archived files selected\n`);
   }
 
   const entriesByKey = new Map(all.map(entry => [entry.key, entry]));
-  const siteByHost = new Map(sites.map(site => [site.host, site]));
   const manifest = {
     generatedAt: new Date().toISOString(),
     source: 'Internet Archive Wayback Machine raw replay (id_)',
+    coverage: 'One representative 1997-1999 capture per unique static URL; dynamic atlas.cgi responses are rendered locally by Wlbrw32.dll.',
     files: all.map(entry => ({
       site: entry.site.folder,
       timestamp: entry.timestamp,
       original: entry.original,
       mime: entry.mime,
       bytes: entry.length,
-      local: entry.local
+      local: entry.local,
+      source: entry.sourceUrl
     }))
   };
-  await writeJson(path.join(manifestRoot, 'mirror-manifest.json'), manifest);
 
   let completed = 0;
   let failed = 0;
@@ -256,14 +402,18 @@ async function main() {
       const index = cursor++;
       if (index >= all.length) return;
       const entry = all[index];
-      const destination = path.join(mirrorRoot, entry.local);
+      const destination = path.join(stagingRoot, ...entry.local.split('/'));
       try {
         const response = await fetchBytes(entry.sourceUrl);
         await fsp.mkdir(path.dirname(destination), { recursive: true });
         const bytes = isHtml(entry, response.contentType)
-          ? Buffer.from(rewriteHtml(response.bytes.toString('utf8'), entry, entriesByKey, siteByHost), 'utf8')
-          : response.bytes;
+          ? Buffer.from(rewriteHtml(response.bytes.toString('utf8'), entry, entriesByKey), 'utf8')
+          : isCss(entry, response.contentType)
+            ? Buffer.from(rewriteCss(response.bytes.toString('utf8'), entry, entriesByKey), 'utf8')
+            : response.bytes;
         await fsp.writeFile(destination, bytes);
+        entry.downloadedBytes = bytes.length;
+        entry.sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
         completed++;
         if (completed % 50 === 0 || completed === all.length) {
           process.stdout.write(`Downloaded ${completed}/${all.length}\n`);
@@ -271,51 +421,68 @@ async function main() {
       } catch (error) {
         failed++;
         failures.push({ local: entry.local, source: entry.sourceUrl, error: String(error && error.message || error) });
-        process.stderr.write(`FAILED ${entry.local}: ${error.message || error}\n`);
+        process.stderr.write(`FAILED ${entry.local}: ${error && error.message || error}\n`);
       }
     }
   }
   await Promise.all(Array.from({ length: concurrency }, worker));
 
-  // Provide the local context page used for every entry-specific atlas.cgi
-  // request. The native shim generates a per-request local page; this
-  // template is also available for browsing before any entry is opened.
   const entryTemplateCandidates = [
     path.join(root, 'Atlas-Online-Entry.html'),
     path.join(root, '..', 'archive', 'Atlas-Online-Entry.html')
   ];
   const entryTemplate = entryTemplateCandidates.find(file => fs.existsSync(file));
   if (entryTemplate) {
-    await fsp.copyFile(entryTemplate, path.join(mirrorRoot, '3datlas', 'entry-links.html'));
+    await fsp.copyFile(entryTemplate, path.join(stagingRoot, '3datlas', 'entry-links.html'));
   }
 
-  // Provide deterministic aliases for the four top-level URLs the native
-  // shim opens. The files themselves remain preserved site pages.
-  const aliases = [
-    ['3datlas/index.html', '3datlas/index.html'],
-    ['3datlas/download/f_main_dl.html', '3datlas/download/f_main_dl.html'],
-    ['3datlas/sitemap.html', '3datlas/sitemap.html'],
-    ['comptons/index.html', 'comptons/index.html']
+  const required = [
+    '3datlas/index.html',
+    '3datlas/download/f_main_dl.html',
+    '3datlas/sitemap.html',
+    'comptons/index.html'
   ];
-  for (const [alias, target] of aliases) {
-    const source = path.join(mirrorRoot, target);
-    const destination = path.join(mirrorRoot, alias);
-    if (source !== destination && fs.existsSync(source)) await fsp.copyFile(source, destination);
+  for (const relative of required) {
+    if (!fs.existsSync(path.join(stagingRoot, ...relative.split('/')))) {
+      failures.push({ local: relative, source: 'required archive target', error: 'missing after download' });
+      failed++;
+    }
   }
 
+  manifest.files = all.map(entry => ({
+    site: entry.site.folder,
+    timestamp: entry.timestamp,
+    original: entry.original,
+    mime: entry.mime,
+    bytes: entry.downloadedBytes || entry.length,
+    local: entry.local,
+    source: entry.sourceUrl,
+    sha256: entry.sha256 || null
+  }));
+  await writeJson(path.join(manifestRoot, 'mirror-manifest.json'), manifest);
   await writeJson(path.join(manifestRoot, 'download-failures.json'), failures);
   const summary = {
-    sites: sites.map(site => ({ host: site.host, selected: selectedBySite.get(site.host).length })),
+    generatedAt: manifest.generatedAt,
+    sites: sites.map(site => ({ site: site.id, aliases: site.aliases, selected: selectedBySite.get(site.id).length })),
+    selected: all.length,
     downloaded: completed,
     failed,
     mirrorRoot,
-    failures: path.join(manifestRoot, 'download-failures.json')
+    manifest: path.join(mirrorRoot, 'manifests', 'mirror-manifest.json'),
+    failures: path.join(mirrorRoot, 'manifests', 'download-failures.json')
   };
+  await writeJson(path.join(manifestRoot, 'mirror-summary.json'), summary);
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
-  if (failed) process.exitCode = 1;
+
+  if (failed) {
+    process.stderr.write(`Archive sync left an incomplete staging mirror at ${stagingRoot}; the previous mirror was not replaced.\n`);
+    process.exitCode = 1;
+    return;
+  }
+  await replaceMirror();
 }
 
-main().catch(error => {
+main().catch(async error => {
   console.error(error.stack || error);
   process.exitCode = 1;
 });

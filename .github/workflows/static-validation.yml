@@ -14,6 +14,19 @@ jobs:
           node-version: 20
       - name: Check archive synchronizer syntax
         run: node --check scripts/Sync-AtlasLocalArchive.js
+      - name: Verify published x86 shim artifact
+        shell: pwsh
+        run: |
+          $artifact = 'build/Wlbrw32.dll'
+          $sidecar = 'build/Wlbrw32.dll.sha256'
+          if (-not (Test-Path $artifact) -or -not (Test-Path $sidecar)) { throw 'The published archive shim artifact or hash is missing.' }
+          $expected = ((Get-Content -Raw $sidecar).Trim() -split '\s+')[0].ToUpperInvariant()
+          $actual = (Get-FileHash -Algorithm SHA256 $artifact).Hash
+          if ($actual -ne $expected) { throw "Shim hash mismatch: $actual != $expected" }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $artifact))
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x014c) { throw "The published shim is not x86 (machine 0x{0:X4})." -f $machine }
       - name: Parse PowerShell scripts
         shell: pwsh
         run: |

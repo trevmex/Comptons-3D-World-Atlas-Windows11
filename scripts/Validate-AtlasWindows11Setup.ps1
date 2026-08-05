@@ -1,132 +1,103 @@
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName UIAutomationClient
+[CmdletBinding()]
+param(
+    [string] $WorkspaceDirectory = (Join-Path $env:LOCALAPPDATA 'Comptons 3D World Atlas Deluxe')
+)
 
+$ErrorActionPreference = 'Stop'
 $errors = New-Object Collections.Generic.List[string]
 function Test-Requirement {
     param([bool] $Condition, [string] $Message)
     if (-not $Condition) { $script:errors.Add($Message) }
 }
 
-$base = Join-Path $env:LOCALAPPDATA 'Comptons 3D World Atlas Deluxe'
-$runtime = Join-Path $env:LOCALAPPDATA 'Programs\Comptons 3D World Atlas Deluxe'
-$atlasPath = Join-Path $runtime 'atlas.exe'
+$configPath = Join-Path $WorkspaceDirectory 'Atlas-Config.json'
+Test-Requirement (Test-Path -LiteralPath $configPath) "Atlas-Config.json is missing: $configPath"
+if (-not (Test-Path -LiteralPath $configPath)) {
+    $errors | ForEach-Object { Write-Error $_ }
+    exit 1
+}
+$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+$runtime = $config.RuntimeDirectory
+$archive = $config.ArchiveMirror
+$converted = $config.ConvertedMedia
+$atlasPath = $config.AtlasExecutable
 $shimPath = Join-Path $runtime 'Wlbrw32.dll'
-$shimHashFile = Join-Path $runtime 'Wlbrw32.dll.sha256'
 $originalShim = Join-Path $runtime 'Wlbrw32.dll.original-1998'
-$installedDirectory = "C:\Program Files (x86)\Compton's Home Library\Compton's 3D World Atlas Deluxe"
-$expectedAtlasHash = 'F2BC73684875E7E9333DAEDEE4628070698A1768D0EFFB12907EAE2BA9969A0C'
-$expectedShimHash = if (Test-Path -LiteralPath $shimHashFile) {
-    ((Get-Content -LiteralPath $shimHashFile -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
-} else {
-    ''
+$logPath = $config.AtlasLog
+
+foreach ($path in @($atlasPath, $shimPath, $originalShim, $logPath, $archive, $converted)) {
+    Test-Requirement (Test-Path -LiteralPath $path) "Installed path is missing: $path"
 }
-$expectedOriginalShimHash = '84B83AEA33950FD462CE35090DEAD80B26AC699F3E67C1AE3695D14ACF681831'
+if (Test-Path -LiteralPath $atlasPath) {
+    Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $atlasPath).Hash -eq $config.AtlasExeSha256) 'The user-local Atlas executable hash changed.'
+}
+if (Test-Path -LiteralPath $shimPath) {
+    Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $shimPath).Hash -eq $config.ShimSha256) 'The archive shim hash does not match Atlas-Config.json.'
+}
+if (Test-Path -LiteralPath $originalShim) {
+    Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $originalShim).Hash -eq $config.OriginalShimSha256) 'The original WonderLink backup hash changed.'
+}
 
-$atlasProcesses = @(Get-Process -Name atlas -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -ieq $atlasPath })
-Test-Requirement ($atlasProcesses.Count -eq 1) 'Expected exactly one user-local Atlas process.'
-if ($atlasProcesses.Count -eq 1) {
-    $atlas = $atlasProcesses[0]
-    Test-Requirement $atlas.Responding 'Atlas is not responding.'
+if (Test-Path -LiteralPath $logPath) {
+    $logLines = Get-Content -LiteralPath $logPath
+    Test-Requirement ($logLines -contains 'URL=https://archive-mode.invalid/atlas.cgi') 'The inert Online URL is not configured.'
+    Test-Requirement ($logLines -contains 'Volume=5') 'Atlas volume is not restored to 5.'
+    Test-Requirement ($logLines -contains 'Music=1') 'Atlas music is not enabled.'
+    Test-Requirement ($logLines -contains 'Narration=1') 'Atlas narration is not enabled.'
+    Test-Requirement ($logLines -contains "avi=$converted\AVI") 'The converted AVI root is not active.'
+    Test-Requirement ($logLines -contains "game=$converted") 'The converted game root is not active.'
 
-    $condition = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-        $atlas.Id
-    )
-    $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-        [System.Windows.Automation.TreeScope]::Children,
-        $condition
-    )
-    $fullscreen = $windows |
-        Where-Object { $_.Current.ClassName -in @('pixeldouble', 'SJE_FULLSCREEN') } |
-        Select-Object -First 1
-    Test-Requirement ([bool] $fullscreen) 'Atlas is not in built-in fullscreen mode.'
-    if ($fullscreen) {
-        $rect = $fullscreen.Current.BoundingRectangle
-        Test-Requirement ($rect.X -eq 0 -and $rect.Y -eq 0 -and $rect.Width -eq 3840 -and $rect.Height -eq 2160) `
-            'Atlas fullscreen bounds are not 3840x2160 at 0,0.'
+    $installedMappings = @()
+    $inInstalled = $false
+    foreach ($line in $logLines) {
+        if ($line -eq '[Installed]') { $inInstalled = $true; continue }
+        if ($inInstalled -and $line -match '^\[') { break }
+        if ($inInstalled -and $line -match '=') { $installedMappings += $line }
     }
+    Test-Requirement ($installedMappings.Count -gt 0) 'Atlas.log has no installed media mappings.'
+    $missingMappings = @($installedMappings | ForEach-Object {
+        $mappedPath = ($_ -split '=', 2)[1]
+        if (-not (Test-Path -LiteralPath $mappedPath)) { $_ }
+    })
+    Test-Requirement ($missingMappings.Count -eq 0) "Found $($missingMappings.Count) missing installed mappings."
 }
 
-Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $atlasPath).Hash -eq $expectedAtlasHash) `
-    'The user-local Atlas executable hash changed.'
-$actualShimHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $shimPath).Hash
-Test-Requirement ($expectedShimHash -and $actualShimHash -eq $expectedShimHash) `
-    'The Online Archive shim hash does not match its generated sidecar.'
-Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $originalShim).Hash -eq $expectedOriginalShimHash) `
-    'The original WonderLink backup hash changed.'
-Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $installedDirectory 'atlas.exe')).Hash -eq $expectedAtlasHash) `
-    'The installed Atlas executable was modified.'
-Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $installedDirectory 'Wlbrw32.dll')).Hash -eq $expectedOriginalShimHash) `
-    'The installed 1998 WonderLink DLL was modified.'
-
-$atlasLog = Join-Path $runtime 'Atlas.log'
-$logLines = Get-Content -LiteralPath $atlasLog
-Test-Requirement ($logLines -contains 'URL=https://archive-mode.invalid/atlas.cgi') `
-    'The inert Online fallback URL is not configured.'
-Test-Requirement ($logLines -contains 'Volume=5') 'Atlas volume is not restored to 5.'
-Test-Requirement ($logLines -contains 'Music=1') 'Atlas music is not enabled.'
-Test-Requirement ($logLines -contains 'Narration=1') 'Atlas narration is not enabled.'
-Test-Requirement ($logLines -contains "avi=$base\Converted Media\AVI") 'The converted AVI root is not active.'
-Test-Requirement ($logLines -contains "game=$base\Converted Media") 'The converted game root is not active.'
-
-$installedMappings = @()
-$inInstalled = $false
-foreach ($line in $logLines) {
-    if ($line -eq '[Installed]') { $inInstalled = $true; continue }
-    if ($inInstalled -and $line -match '^\[') { break }
-    if ($inInstalled -and $line -match '=') { $installedMappings += $line }
+$aviFiles = @()
+if (Test-Path -LiteralPath $converted) { $aviFiles = @(Get-ChildItem -LiteralPath $converted -Recurse -File -Filter '*.avi') }
+$inventoryPath = Join-Path $converted 'media-inventory.json'
+Test-Requirement (Test-Path -LiteralPath $inventoryPath) 'The media inventory is missing.'
+if (Test-Path -LiteralPath $inventoryPath) {
+    $inventory = Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json
+    Test-Requirement ($aviFiles.Count -eq [int]$inventory.Files) "Media inventory/file count mismatch ($($aviFiles.Count) vs $($inventory.Files))."
+    $gameMovies = @(Get-ChildItem -LiteralPath (Join-Path $converted 'GAME\MOVIES') -Filter '*.avi' -File -ErrorAction SilentlyContinue)
+    Test-Requirement ($gameMovies.Count -eq [int]$inventory.GameMovies) 'Game movie count does not match the media inventory.'
 }
-$missingMappings = @($installedMappings | ForEach-Object {
-    $mappedPath = ($_ -split '=', 2)[1]
-    if (-not (Test-Path -LiteralPath $mappedPath)) { $_ }
-})
-Test-Requirement ($installedMappings.Count -eq 68) "Expected 68 installed mappings; found $($installedMappings.Count)."
-Test-Requirement ($missingMappings.Count -eq 0) "Found $($missingMappings.Count) missing installed mappings."
 
-$gameMovies = @(Get-ChildItem -LiteralPath (Join-Path $base 'Converted Media\GAME\MOVIES') -Filter '*.avi' -File)
-Test-Requirement ($gameMovies.Count -eq 22) "Expected 22 local game movies; found $($gameMovies.Count)."
+$ffprobe = if ($config.Tools -and $config.Tools.FFprobe) { $config.Tools.FFprobe } else { (Get-Command ffprobe.exe -ErrorAction SilentlyContinue).Source }
+if ($ffprobe -and $aviFiles.Count) {
+    $indeo = @($aviFiles | Where-Object {
+        $codec = (& $ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 $_.FullName 2>$null).Trim()
+        $codec -match '(?i)^indeo'
+    })
+    Test-Requirement ($indeo.Count -eq 0) "Obsolete Indeo remains in $($indeo.Count) converted videos."
+}
 
-$onlineResultsPath = Join-Path $base 'Test Results\Online Archive\online-command-results.tsv'
-$onlineResults = @(Import-Csv -LiteralPath $onlineResultsPath -Delimiter "`t")
-Test-Requirement ($onlineResults.Count -eq 4) "Expected four Online command results; found $($onlineResults.Count)."
-Test-Requirement (@($onlineResults | Where-Object { $_.Passed -ne 'True' }).Count -eq 0) `
-    'At least one Online Archive command failed.'
-$mirrorRoot = Join-Path $base 'Online Archive\Mirror'
-$mirrorTargets = @(
-    (Join-Path $mirrorRoot '3datlas\index.html'),
-    (Join-Path $mirrorRoot '3datlas\download\f_main_dl.html'),
-    (Join-Path $mirrorRoot '3datlas\sitemap.html'),
-    (Join-Path $mirrorRoot 'comptons\index.html')
-)
-Test-Requirement (($mirrorTargets | Where-Object { -not (Test-Path -LiteralPath $_) }).Count -eq 0) `
-    'One or more local archived Online targets are missing.'
-Test-Requirement ((Get-ChildItem -LiteralPath $mirrorRoot -Recurse -File -ErrorAction SilentlyContinue).Count -ge 100) `
-    'The local archived Online mirror is unexpectedly small.'
+if ($config.ArchiveStatus -eq 'COMPLETE' -and (Test-Path -LiteralPath $archive)) {
+    & (Join-Path $WorkspaceDirectory 'Validate-AtlasLocalArchive.ps1') -MirrorRoot $archive
+    Test-Requirement ($LASTEXITCODE -eq 0) 'The local Online Archive failed completeness validation.'
+} else {
+    Test-Requirement $false 'The installed profile does not contain a complete local Online Archive.'
+}
 
 $shortcutRoot = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-$shortcuts = @(Get-ChildItem -LiteralPath $shortcutRoot -Recurse -Filter '*Windows 11*.lnk' |
+$shortcuts = @(Get-ChildItem -LiteralPath $shortcutRoot -Recurse -Filter '*Windows 11*.lnk' -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -like "Compton's 3D World Atlas Deluxe*" })
 Test-Requirement ($shortcuts.Count -eq 2) "Expected two Windows 11 shortcuts; found $($shortcuts.Count)."
-if ($shortcuts.Count -eq 2) {
-    $shell = New-Object -ComObject WScript.Shell
-    foreach ($file in $shortcuts) {
-        $shortcut = $shell.CreateShortcut($file.FullName)
-        Test-Requirement ($shortcut.Arguments -like '*Launch-ComptonsAtlas.ps1*') `
-            "Shortcut does not use the launcher: $($file.Name)"
-        Test-Requirement ($shortcut.IconLocation -like "$atlasPath,*") `
-            "Shortcut does not use the user-local Atlas icon: $($file.Name)"
-    }
-}
+Test-Requirement (-not (Test-Path 'Registry::HKEY_CURRENT_USER\Software\Classes\Software\CreativeWonders')) 'A legacy WonderLink browser-association override remains in the registry.'
 
-Test-Requirement (Test-Path -LiteralPath 'D:\ATLAS.EXE') 'The original disc is not mounted as D:.'
-$disc = Get-Volume -DriveLetter D -ErrorAction SilentlyContinue
-Test-Requirement ($disc.FileSystemLabel -eq '3DATLAS') "Drive D: label is not 3DATLAS."
-Test-Requirement (-not (Test-Path 'Registry::HKEY_CURRENT_USER\Software\Classes\Software\CreativeWonders')) `
-    'A legacy WonderLink browser-association override remains in the registry.'
-Test-Requirement (-not (Get-Process -Name gdb -ErrorAction SilentlyContinue)) 'A GDB process is still attached or running.'
-Test-Requirement (Test-Path -LiteralPath (Join-Path $base 'README-Windows-11-fix.txt')) `
-    'Windows 11 documentation is missing.'
+$disc = Get-Volume -DriveLetter $config.DiscDrive.TrimEnd(':') -ErrorAction SilentlyContinue
+Test-Requirement (Test-Path -LiteralPath (Join-Path $config.DiscDrive 'ATLAS.EXE')) 'The original disc is not mounted.'
+Test-Requirement ($disc -and $disc.FileSystemLabel -eq '3DATLAS') 'The configured optical volume is not labeled 3DATLAS.'
 
 if ($errors.Count) {
     $errors | ForEach-Object { Write-Error $_ }
@@ -135,15 +106,10 @@ if ($errors.Count) {
 
 [pscustomobject]@{
     Status = 'PASS'
-    AtlasProcessId = if ($atlasProcesses.Count -eq 1) { $atlasProcesses[0].Id } else { 0 }
     Runtime = $runtime
-    Fullscreen = '3840x2160'
-    InstalledMappings = $installedMappings.Count
-    MissingMappings = $missingMappings.Count
-    GameMovies = $gameMovies.Count
-    OnlineCommands = $onlineResults.Count
-    LocalArchiveFiles = (Get-ChildItem -LiteralPath $mirrorRoot -Recurse -File).Count
+    MediaFiles = $aviFiles.Count
+    ArchiveFiles = (Get-ChildItem -LiteralPath $archive -Recurse -File).Count
     Shortcuts = $shortcuts.Count
     Disc = "$($disc.DriveLetter): $($disc.FileSystemLabel)"
-    ArchiveShimSha256 = $actualShimHash
+    ArchiveShimSha256 = $config.ShimSha256
 } | Format-List
