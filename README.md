@@ -2,20 +2,24 @@
 
 A reversible, user-local compatibility layer for **Compton's 3D World Atlas Deluxe v3.2** (Windows 95). It converts the disc's obsolete Indeo movies to Microsoft Video 1, preserves their PCM audio, uses the built-in Superplay fullscreen path, and replaces the retired Online service with a complete practical static mirror of the 1997-1999 Internet Archive captures for the Atlas-era 3datlas.com and comptons.com sites.
 
+## Downloadable Windows installer
+
+Download `Comptons-3D-World-Atlas-Windows11-Setup.exe` from the [GitHub Releases page](https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11/releases). The installer contains only this compatibility toolkit; it does not contain the commercial Atlas program or CD data. It refuses to continue unless the physical `3DATLAS` disc is mounted, then runs the complete media conversion and archive setup for the current Windows user. Verify the adjacent `SHA256SUMS.txt` before running it.
+
 ## One-install promise and the physical-media boundary
 
 This repository does **not** contain `ATLAS.EXE`, CD media, proprietary Atlas DLLs, converted movies, or generated archive snapshots. The installer succeeds **only** when your lawful original CD is mounted and identified as volume `3DATLAS`. The disc must remain mounted while the program runs because Atlas reads its maps, chunks, images, sounds, help, and statistics from the CD.
 
 The installer does **not** run the 1998 setup program, install Indeo/Video for Windows, modify Program Files, write legacy browser registry associations, or install AOL/Internet Explorer/DDE components. It copies the small Atlas runtime directly from the physical disc into a user-local directory and creates a separate converted-media tree.
 
-On a normal Windows 11 system, one elevated or non-elevated PowerShell command is all that is required:
+If you are running from a cloned repository instead of the release installer, one non-elevated PowerShell command is sufficient:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\Install-AtlasWindows11.ps1
 ```
 
-The script automatically installs the user-scoped LGPL FFmpeg tools and Node.js LTS with Windows Package Manager (`winget`) when they are absent. Internet access is required during installation to obtain those tools and the historical archive. No Visual Studio installation is required: the repository carries the independently authored x86 archive shim artifact and also retains its reproducible C build.
+The installer and script automatically install the user-scoped LGPL FFmpeg tools and Node.js LTS with Windows Package Manager (`winget`) when they are absent. Internet access is required during installation to obtain those tools and the historical archive. No Visual Studio installation is required: the repository carries the independently authored x86 archive shim artifact and also retains its reproducible C build.
 
 The defaults are `D:` for the CD, `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe` for generated data, and `%LOCALAPPDATA%\Programs\Comptons 3D World Atlas Deluxe` for the runtime. The CD can be assigned another drive with `-DiscDrive`, but the chosen volume must still be labeled `3DATLAS`.
 
@@ -77,6 +81,7 @@ The last three groups are interactive/runtime checks. Static installation, archi
 
 ## Repository layout
 
+- `installer/` — Inno Setup source and reproducible installer build script
 - `scripts/` — one-step installer, tool bootstrap, launcher, media conversion, archive sync, and tests
 - `src/` — source for the safe x86 `Wlbrw32.dll` replacement
 - `build/Wlbrw32.dll` — reproducible-project build artifact used when a compiler is unavailable

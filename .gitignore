@@ -1,4 +1,5 @@
-# Generated build output (the independently authored x86 shim artifact is kept)
+# Generated release/build output (the independently authored x86 shim artifact is kept)
+dist/
 build/
 !build/
 !build/Wlbrw32.dll

@@ -1,5 +1,15 @@
 # Troubleshooting
 
+## Downloadable installer
+
+The GitHub release installer is a user-scoped Inno Setup package. It extracts the redistributable toolkit and invokes the same `scripts\Install-AtlasWindows11.ps1` used by a repository checkout. The installer itself never contains Atlas media. To rebuild it on a maintainer machine, install Inno Setup 6 and run:
+
+```powershell
+.\installer\Build-AtlasInstaller.ps1
+```
+
+The output is `dist\Comptons-3D-World-Atlas-Windows11-Setup.exe` plus `SHA256SUMS.txt`. A release install requires the CD at the configured drive; `/DISC=E:` is available for another labeled optical drive.
+
 ## Installer says the disc is missing
 
 The toolkit intentionally refuses to install without the physical media:

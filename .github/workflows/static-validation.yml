@@ -39,3 +39,12 @@ jobs:
       - name: Build native archive shim
         shell: pwsh
         run: .\scripts\Build-WonderLink-Archive.cmd
+      - name: Refresh built shim hash
+        shell: pwsh
+        run: (Get-FileHash -Algorithm SHA256 build/Wlbrw32.dll).Hash + '  Wlbrw32.dll' | Set-Content build/Wlbrw32.dll.sha256 -Encoding ASCII
+      - name: Install Inno Setup
+        shell: pwsh
+        run: winget install --id JRSoftware.InnoSetup --exact --scope user --silent --accept-source-agreements --accept-package-agreements
+      - name: Build Windows installer
+        shell: pwsh
+        run: .\installer\Build-AtlasInstaller.ps1
