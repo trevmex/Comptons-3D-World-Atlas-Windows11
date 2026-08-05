@@ -62,6 +62,28 @@ foreach ($file in $files) {
 }
 
 $gameSource = Join-Path $drive 'GAME'
+$miniflag = Join-Path $gameSource 'MINIFLAG.AVI'
+if (Test-Path -LiteralPath $miniflag) {
+    $destination = Join-Path $gameRoot 'MINIFLAG.AVI'
+    $sourceCodec = Invoke-Probe @('-v','error','-select_streams','v:0','-show_entries','stream=codec_name','-of','default=noprint_wrappers=1:nokey=1',$miniflag)
+    if ($sourceCodec -match '(?i)^indeo[345]$') {
+        $temporary = "$destination.partial.avi"
+        Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $miniflag `
+            -map 0:v:0 -map '0:a?' -c:v msvideo1 -pix_fmt rgb555le -vtag MSVC `
+            -fps_mode passthrough -c:a copy $temporary
+        if ($LASTEXITCODE) { throw 'ffmpeg failed for MINIFLAG.AVI.' }
+        Move-Item -LiteralPath $temporary -Destination $destination -Force
+        $replacementCodec = 'msvideo1'
+    } else {
+        Copy-Item -LiteralPath $miniflag -Destination $destination -Force
+        $replacementCodec = $sourceCodec
+    }
+    $manifest.Add([pscustomobject]@{
+        FileName = 'MINIFLAG.AVI'; Source = $miniflag; Replacement = $destination
+        SourceCodec = $sourceCodec; ReplacementCodec = $replacementCodec; AudioStreams = 0
+    })
+}
 if (Test-Path -LiteralPath $gameSource) {
     Get-ChildItem -LiteralPath $gameSource -File | Where-Object { $_.Extension -notmatch '(?i)^\.avi$' } |
         Copy-Item -Destination $gameRoot -Force
