@@ -10,6 +10,10 @@ The GitHub release installer is a user-scoped Inno Setup package. It extracts th
 
 The output is `dist\Comptons-3D-World-Atlas-Windows11-Setup.exe` plus `SHA256SUMS.txt`. A release install requires the CD at the configured drive; the installer checks other drive letters automatically when `/DISC` is omitted, and `/DISC=E:` is available for a specific labeled optical drive. Archive downloads use a bounded parallel pool with a low-concurrency retry pass, and AVI conversion uses four local worker processes. If the compatibility phase fails, inspect `Install-AtlasWindows11.log` in `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe Toolkit`.
 
+## Online Connection Needed or dead browser links
+
+Those symptoms mean the original Program Files copy or an old desktop shortcut was launched. Use the installer-created `Compton's 3D World Atlas Deluxe - Windows 11 Archive Mode` desktop shortcut, or either Windows 11 shortcut in the Start Menu. The local archive shim is only installed in the user-local runtime; the original Program Files installation is deliberately left untouched.
+
 ## Installer says the disc is missing
 
 The toolkit intentionally refuses to install without the physical media:

@@ -39,6 +39,19 @@ foreach ($item in $shortcuts) {
     $shortcut.Save()
 }
 
+$desktop = [Environment]::GetFolderPath('Desktop')
+$desktopShortcutPath = Join-Path $desktop "Compton's 3D World Atlas Deluxe - Windows 11 Archive Mode.lnk"
+$desktopShortcut = $shell.CreateShortcut($desktopShortcutPath)
+$desktopShortcut.TargetPath = $powershell
+$desktopShortcut.Arguments = $shortcuts[1].Arguments
+$desktopShortcut.WorkingDirectory = $base
+$desktopShortcut.IconLocation = "$atlas,0"
+$desktopShortcut.Description = 'Launch Compton''s 3D World Atlas Deluxe with the Windows 11 local archive replacement'
+$desktopShortcut.WindowStyle = 7
+$desktopShortcut.Save()
+
 Get-ChildItem -LiteralPath $folder -Filter '*Windows 11*.lnk' |
     Select-Object Name, FullName, Length, LastWriteTime |
     Format-Table -AutoSize
+[pscustomobject]@{ Name = $desktopShortcutPath; Target = $powershell; Arguments = $desktopShortcut.Arguments } |
+    Format-List

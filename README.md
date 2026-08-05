@@ -21,6 +21,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The installer and script automatically install the user-scoped LGPL FFmpeg tools and Node.js LTS with Windows Package Manager (`winget`) when they are absent. Internet access is required during installation to obtain those tools and the historical archive. No Visual Studio installation is required: the repository carries the independently authored x86 archive shim artifact and also retains its reproducible C build.
 
+Launch the program from the installer-created Start Menu shortcuts or the desktop shortcut named `Compton's 3D World Atlas Deluxe - Windows 11 Archive Mode`. Do not use an older desktop shortcut or the original Program Files executable; that copy still uses the retired online connection and will show `Online Connection Needed`.
+
 The defaults are `D:` for the CD, `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe` for generated data, and `%LOCALAPPDATA%\Programs\Comptons 3D World Atlas Deluxe` for the runtime. The release installer automatically checks other drive letters when `D:` does not contain the disc; use `/DISC=E:` when launching it to select a specific drive. The PowerShell script accepts `-DiscDrive E:`, but the chosen volume must still be labeled `3DATLAS`.
 
 ## What installation does

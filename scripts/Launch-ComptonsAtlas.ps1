@@ -46,6 +46,15 @@ public static class AtlasLauncherNative
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetWindow(IntPtr window, uint command);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr window);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowEnabled(IntPtr window);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetClassName(IntPtr window, StringBuilder className, int capacity);
 
@@ -111,14 +120,6 @@ function Repair-AtlasZOrder {
     )
     if ($foregroundProcessId -ne $Process.Id) { return }
 
-    $className = New-Object Text.StringBuilder 128
-    [void] [AtlasLauncherNative]::GetClassName(
-        $foreground,
-        $className,
-        $className.Capacity
-    )
-    if ($className.ToString() -ne 'BlackOutWnd') { return }
-
     # Never interfere with either Atlas fullscreen implementation.
     if ((Find-AtlasWindow -Process $Process -ClassName 'pixeldouble') -or
         (Find-AtlasWindow -Process $Process -ClassName 'SJE_FULLSCREEN')) {
@@ -128,6 +129,34 @@ function Repair-AtlasZOrder {
     $mainWindow = Find-AtlasWindow -Process $Process -ClassName 'WOBJClass'
     if (-not $mainWindow -or -not $mainWindow.Current.IsEnabled) { return }
     $mainHandle = [IntPtr] $mainWindow.Current.NativeWindowHandle
+
+    # Some 1998 modal dialogs are created without a reliable owner and can
+    # fall behind WOBJClass. Bring an enabled popup back above the main window
+    # so Online Connection Needed and similar dialogs can always be dismissed.
+    $popupHandle = [AtlasLauncherNative]::GetWindow($mainHandle, 6) # GW_ENABLEDPOPUP
+    if ($popupHandle -ne [IntPtr]::Zero -and
+        $popupHandle -ne $mainHandle -and
+        [AtlasLauncherNative]::IsWindowVisible($popupHandle) -and
+        [AtlasLauncherNative]::IsWindowEnabled($popupHandle)) {
+        [void] [AtlasLauncherNative]::SetWindowPos(
+            $popupHandle,
+            [IntPtr]::Zero, # HWND_TOP
+            0, 0, 0, 0,
+            0x0013 # SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+        )
+        [void] [AtlasLauncherNative]::BringWindowToTop($popupHandle)
+        [void] [AtlasLauncherNative]::SetForegroundWindow($popupHandle)
+        return
+    }
+
+    $className = New-Object Text.StringBuilder 128
+    [void] [AtlasLauncherNative]::GetClassName(
+        $foreground,
+        $className,
+        $className.Capacity
+    )
+    if ($className.ToString() -ne 'BlackOutWnd') { return }
+
     [void] [AtlasLauncherNative]::SetWindowPos(
         $mainHandle,
         [IntPtr]::Zero, # HWND_TOP
