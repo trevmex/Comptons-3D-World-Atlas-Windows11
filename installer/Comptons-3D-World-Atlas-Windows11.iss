@@ -1,5 +1,5 @@
 #define MyAppName "Compton's 3D World Atlas Deluxe - Windows 11 Compatibility"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Trevor Menagh"
 #define MyAppURL "https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11"
 
@@ -43,6 +43,11 @@ Source: "..\build\Wlbrw32.dll.sha256"; DestDir: "{app}\build"; Flags: ignorevers
 [Code]
 var
   DiscDrive: string;
+  DetailsLogPath: string;
+  DetailsButton: TNewButton;
+  DetailsForm: TSetupForm;
+  DetailsMemo: TNewMemo;
+  DetailsCloseButton: TNewButton;
 
 function IsAtlasDisc(const Drive: string): Boolean;
 begin
@@ -97,6 +102,73 @@ begin
   Result := DiscDrive + '\' + Name;
 end;
 
+procedure DetailsCloseButtonClick(Sender: TObject);
+begin
+  if DetailsForm <> nil then
+    DetailsForm.Hide;
+end;
+
+procedure DetailsButtonClick(Sender: TObject);
+begin
+  if DetailsForm = nil then begin
+    DetailsForm := CreateCustomForm(ScaleX(760), ScaleY(500), False, False);
+    DetailsForm.Caption := 'Compton''s 3D World Atlas Deluxe - Installation details';
+    DetailsForm.Position := poScreenCenter;
+
+    DetailsMemo := TNewMemo.Create(DetailsForm);
+    DetailsMemo.Parent := DetailsForm;
+    DetailsMemo.SetBounds(
+      ScaleX(8), ScaleY(8),
+      DetailsForm.ClientWidth - ScaleX(16),
+      DetailsForm.ClientHeight - ScaleY(48)
+    );
+    DetailsMemo.ReadOnly := True;
+    DetailsMemo.ScrollBars := ssBoth;
+    DetailsMemo.WordWrap := False;
+    DetailsMemo.WantReturns := False;
+
+    DetailsCloseButton := TNewButton.Create(DetailsForm);
+    DetailsCloseButton.Parent := DetailsForm;
+    DetailsCloseButton.Caption := 'Close';
+    DetailsCloseButton.SetBounds(
+      DetailsForm.ClientWidth - ScaleX(88),
+      DetailsForm.ClientHeight - ScaleY(34),
+      ScaleX(80), ScaleY(24)
+    );
+    DetailsCloseButton.OnClick := @DetailsCloseButtonClick;
+  end;
+
+  DetailsMemo.Lines.Clear;
+  DetailsMemo.Lines.Add('The installer runs in the background while this window shows the captured progress log.');
+  DetailsMemo.Lines.Add('');
+  if (DetailsLogPath <> '') and FileExists(DetailsLogPath) then begin
+    try
+      DetailsMemo.Lines.LoadFromFile(DetailsLogPath);
+    except
+      DetailsMemo.Lines.Add('The diagnostic log could not be read: ' + DetailsLogPath);
+    end;
+  end else begin
+    DetailsMemo.Lines.Add('The compatibility phase has not produced a log yet.');
+    if DetailsLogPath <> '' then
+      DetailsMemo.Lines.Add('Expected log: ' + DetailsLogPath);
+  end;
+  DetailsForm.Show;
+  DetailsForm.BringToFront;
+end;
+
+procedure InitializeWizard;
+begin
+  DetailsButton := TNewButton.Create(WizardForm);
+  DetailsButton.Parent := WizardForm.FinishedPage;
+  DetailsButton.Caption := 'Show installation details';
+  DetailsButton.Width := ScaleX(170);
+  DetailsButton.Height := ScaleY(26);
+  DetailsButton.Left := WizardForm.FinishedPage.Width - DetailsButton.Width;
+  DetailsButton.Top := WizardForm.FinishedPage.Height - DetailsButton.Height;
+  DetailsButton.OnClick := @DetailsButtonClick;
+  DetailsButton.Visible := False;
+end;
+
 function InitializeSetup: Boolean;
 begin
   DiscDrive := GetDiscDrive;
@@ -117,24 +189,36 @@ var
 begin
   AppRoot := ExpandConstant('{app}');
   LogPath := AppRoot + '\Install-AtlasWindows11.log';
+  DetailsLogPath := LogPath;
+  DetailsButton.Visible := True;
   WizardForm.StatusLabel.Caption := 'Preparing Atlas media and offline Online documentation...';
+  WizardForm.FilenameLabel.Caption := 'Windows 11 compatibility setup';
   WizardForm.ProgressGauge.Style := npbstMarquee;
+  WizardForm.ProgressGauge.Position := 0;
   PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' +
     AppRoot + '\scripts\Install-AtlasWindows11.ps1" -DiscDrive "' + DiscDrive +
     '" -LogPath "' + LogPath + '"';
   Result := Exec(PowerShell, Parameters, AppRoot, SW_HIDE, ewWaitUntilTerminated, ResultCode);
   WizardForm.ProgressGauge.Style := npbstNormal;
-  WizardForm.StatusLabel.Caption := 'Installation complete.';
+  if not Result then begin
+    WizardForm.StatusLabel.Caption := 'Installation could not be started.';
+  end else if ResultCode <> 0 then begin
+    WizardForm.StatusLabel.Caption := 'Installation failed; open Show installation details.';
+  end else begin
+    WizardForm.ProgressGauge.Position := 100;
+    WizardForm.StatusLabel.Caption := 'Installation complete.';
+  end;
   if not Result then begin
     MsgBox('Windows PowerShell could not be started.', mbError, MB_OK);
     exit;
   end;
   if ResultCode <> 0 then begin
-    MsgBox('The compatibility installation failed with exit code ' + IntToStr(ResultCode) + '.' + #13#10 + #13#10 +
-      'Detailed diagnostic output was written to:' + #13#10 + LogPath + #13#10 + #13#10 +
-      'The physical disc must remain mounted and the archive endpoint must be reachable.',
-      mbError, MB_OK);
+    if not WizardSilent then
+      MsgBox('The compatibility installation failed with exit code ' + IntToStr(ResultCode) + '.' + #13#10 + #13#10 +
+        'Detailed diagnostic output was written to:' + #13#10 + LogPath + #13#10 + #13#10 +
+        'The physical disc must remain mounted and the archive endpoint must be reachable.',
+        mbError, MB_OK);
     Result := False;
   end;
 end;

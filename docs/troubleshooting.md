@@ -2,7 +2,7 @@
 
 ## Downloadable installer
 
-The GitHub release installer is a user-scoped Inno Setup package. It extracts the redistributable toolkit and invokes the same `scripts\Install-AtlasWindows11.ps1` used by a repository checkout. The installer itself never contains Atlas media. To rebuild it on a maintainer machine, install Inno Setup 6 and run:
+The GitHub release installer is a user-scoped Inno Setup package. It extracts the redistributable toolkit and invokes the same `scripts\Install-AtlasWindows11.ps1` used by a repository checkout. The installer itself never contains Atlas media. The compatibility phase runs behind the installer progress page; after completion, click **Show installation details** on the finished page to open the captured log. The details window is closed by default. To rebuild it on a maintainer machine, install Inno Setup 6 and run:
 
 ```powershell
 .\installer\Build-AtlasInstaller.ps1
@@ -12,7 +12,7 @@ The output is `dist\Comptons-3D-World-Atlas-Windows11-Setup.exe` plus `SHA256SUM
 
 ## Online Connection Needed or dead browser links
 
-Those symptoms mean the original Program Files copy or an old desktop shortcut was launched. Use the installer-created `Compton's 3D World Atlas Deluxe - Windows 11 Archive Mode` desktop shortcut, or either Windows 11 shortcut in the Start Menu. The local archive shim is only installed in the user-local runtime; the original Program Files installation is deliberately left untouched.
+Those symptoms mean the original Program Files copy or an old desktop shortcut was launched. Use the installer-created `Compton's 3D World Atlas Deluxe - Windows 11 Archive Mode` desktop shortcut, or either Windows 11 shortcut in the Start Menu. The local archive shim is only installed in the user-local runtime; the original Program Files installation is deliberately left untouched. The Windows 11 launcher also keeps legacy modal dialogs above the Atlas window without interfering with normal menu popups.
 
 ## Installer says the disc is missing
 

@@ -4,7 +4,7 @@ A reversible, user-local compatibility layer for **Compton's 3D World Atlas Delu
 
 ## Downloadable Windows installer
 
-Download `Comptons-3D-World-Atlas-Windows11-Setup.exe` from the [GitHub Releases page](https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11/releases). The installer contains only this compatibility toolkit; it does not contain the commercial Atlas program or CD data. It refuses to continue unless the physical `3DATLAS` disc is mounted, then runs the complete media conversion and archive setup for the current Windows user. The work runs inside the installer progress UI with parallel archive downloads and media conversion; no separate PowerShell console is opened. Verify the adjacent `SHA256SUMS.txt` before running it.
+Download `Comptons-3D-World-Atlas-Windows11-Setup.exe` from the [GitHub Releases page](https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11/releases). The installer contains only this compatibility toolkit; it does not contain the commercial Atlas program or CD data. It refuses to continue unless the physical `3DATLAS` disc is mounted, then runs the complete media conversion and archive setup for the current Windows user. The work runs inside the installer progress UI with parallel archive downloads and media conversion; no separate PowerShell console is opened. The finished page includes a closed-by-default **Show installation details** window containing the captured compatibility log. Verify the adjacent `SHA256SUMS.txt` before running it.
 
 ## One-install promise and the physical-media boundary
 

@@ -134,8 +134,17 @@ function Repair-AtlasZOrder {
     # fall behind WOBJClass. Bring an enabled popup back above the main window
     # so Online Connection Needed and similar dialogs can always be dismissed.
     $popupHandle = [AtlasLauncherNative]::GetWindow($mainHandle, 6) # GW_ENABLEDPOPUP
+    $popupClass = New-Object Text.StringBuilder 128
+    if ($popupHandle -ne [IntPtr]::Zero) {
+        [void] [AtlasLauncherNative]::GetClassName(
+            $popupHandle,
+            $popupClass,
+            $popupClass.Capacity
+        )
+    }
     if ($popupHandle -ne [IntPtr]::Zero -and
         $popupHandle -ne $mainHandle -and
+        $popupClass.ToString() -eq '#32770' -and
         [AtlasLauncherNative]::IsWindowVisible($popupHandle) -and
         [AtlasLauncherNative]::IsWindowEnabled($popupHandle)) {
         [void] [AtlasLauncherNative]::SetWindowPos(
