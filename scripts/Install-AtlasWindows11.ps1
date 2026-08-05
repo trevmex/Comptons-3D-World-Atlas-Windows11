@@ -28,7 +28,8 @@ $scriptFiles = @(
     'Launch-ComptonsAtlas.ps1', 'Create-AtlasShortcuts.ps1', 'Invoke-AtlasCommand.ps1',
     'Capture-AtlasWindow.ps1', 'Click-AtlasPoint.ps1', 'Run-AtlasContentSmokeTests.ps1',
     'Run-AtlasDisplayTests.ps1', 'Test-AtlasAudioSession.ps1', 'Test-AtlasGameMoviesMci.ps1',
-    'Test-AtlasOnlineArchive.ps1', 'Validate-AtlasWindows11Setup.ps1'
+    'Test-AtlasOnlineArchive.ps1', 'Validate-AtlasWindows11Setup.ps1',
+    'Convert-AtlasMedia.ps1', 'Validate-AtlasMedia.ps1'
 )
 $onlineDirectory = Join-Path $WorkspaceDirectory 'Online Archive'
 $convertedDirectory = Join-Path $WorkspaceDirectory 'Converted Media'
