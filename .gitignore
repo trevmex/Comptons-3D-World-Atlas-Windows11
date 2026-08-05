@@ -1,0 +1,31 @@
+# Generated build output
+build/
+*.obj
+*.exp
+*.lib
+*.dll
+
+# User-local installation and generated media/archive mirror
+Mirror/
+archive/Mirror/
+**/Converted Media/
+**/Test Results/
+
+# Proprietary/user-supplied Atlas files
+*.avi
+*.wav
+*.chk
+*.bmp
+*.jpg
+*.jpeg
+*.exe
+*.hlp
+*.fon
+*.ico
+Atlas.log
+Atlas.ini
+Wlbrw32.dll
+
+# Local environment
+.vscode/
+.DS_Store
