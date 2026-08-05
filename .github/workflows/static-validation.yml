@@ -1,0 +1,28 @@
+name: Static validation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check archive synchronizer syntax
+        run: node --check scripts/Sync-AtlasLocalArchive.js
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            try { [void][scriptblock]::Create((Get-Content -Raw $_.FullName)) }
+            catch { $errors += "$($_.Name): $($_.Exception.Message)" }
+          }
+          if ($errors) { $errors | Write-Error; exit 1 }
+      - name: Build native archive shim
+        shell: pwsh
+        run: .\scripts\Build-WonderLink-Archive.cmd
