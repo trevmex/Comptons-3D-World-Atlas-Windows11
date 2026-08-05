@@ -1,0 +1,6 @@
+LIBRARY "Wlbrw32"
+EXPORTS
+    WLBrowserLaunch       @2
+    WLGetMaxURLStrlen     @4
+    WLSetProductName      @11
+    WLShowPrefs           @14
