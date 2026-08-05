@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlas Online Entry — Local Archive</title>
+<style>
+  :root { color-scheme: dark; --blue:#071d48; --cyan:#64d8ff; --orange:#ff9d35; --ink:#eaf7ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; font:16px Segoe UI,Arial,sans-serif; color:var(--ink); background:radial-gradient(circle at 25% 15%,#174a83,#071d48 42%,#020713 80%); }
+  main { width:min(900px,calc(100% - 32px)); margin:36px auto; }
+  header,section { background:rgba(2,12,32,.92); border:1px solid #3176a7; border-radius:14px; box-shadow:0 18px 45px #0009; }
+  header { padding:26px 30px; border-bottom:4px solid var(--orange); }
+  h1 { margin:0 0 8px; color:var(--cyan); }
+  h2 { color:var(--orange); }
+  section { margin-top:18px; padding:20px 30px; }
+  a { color:var(--cyan); }
+  code,pre { color:#b9efff; overflow:auto; }
+  .badge { display:inline-block; padding:6px 10px; border:1px solid var(--orange); border-radius:999px; background:#51220e; font-weight:700; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  .card { display:block; padding:14px; background:#0c2c59; border:1px solid #4094c2; border-radius:9px; text-decoration:none; }
+  .card strong { display:block; margin-bottom:5px; color:var(--cyan); }
+  footer { margin:18px; color:#a9c5db; text-align:center; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <span class="badge">LOCAL ARCHIVE MODE</span>
+  <h1 id="title">Atlas Online Entry</h1>
+  <p id="summary">This is the local replacement for a context-sensitive Atlas Online request.</p>
+</header>
+<section>
+  <h2>Entry request</h2>
+  <p>The original executable requested a context-specific page from the retired <code>atlas.cgi</code> service. The request has been kept locally; it was not sent to the Internet.</p>
+  <pre id="metadata"></pre>
+</section>
+<section>
+  <h2>Preserved local material</h2>
+  <div class="grid">
+    <a class="card" id="country" href="sitemap.html"><strong>Country reference</strong>Open the preserved country and regional reference pages.</a>
+    <a class="card" href="atlas/atlas.html"><strong>3D Atlas archive</strong>Browse the preserved Atlas product pages and city screenshots.</a>
+    <a class="card" href="topics/top_geo.html"><strong>Geography topics</strong>Open the local geography and related topic pages.</a>
+    <a class="card" href="sitemap.html"><strong>Archived site map</strong>Browse every preserved static Atlas page and asset collection.</a>
+  </div>
+  <p id="note"></p>
+</section>
+<footer><a href="index.html">Back to the local 3D Atlas archive home</a></footer>
+</main>
+<script>
+(function () {
+  const request = location.search || (location.hash.length > 1 ? '?' + location.hash.slice(1) : '');
+  const params = new URLSearchParams(request);
+  const rawName = params.get('pn') || params.get('h') || 'Atlas entry';
+  const name = rawName.replace(/[_+]+/g, ' ').trim() || 'Atlas entry';
+  const clean = name.replace(/\s+/g, ' ');
+  document.title = clean + ' — Atlas Online Local Archive';
+  document.getElementById('title').textContent = clean + ' — Online Links';
+  document.getElementById('summary').textContent = 'Local preserved context for ' + clean + '.';
+  const entries = [];
+  params.forEach((value, key) => entries.push(key + '=' + value));
+  document.getElementById('metadata').textContent = entries.length ? entries.join('\n') : 'No request parameters were supplied.';
+
+  const lower = clean.toLowerCase();
+  const country = document.getElementById('country');
+  const countryMap = [
+    ['new york', 'countries/co_usa.html'], ['washington', 'countries/co_usa.html'],
+    ['los angeles', 'countries/co_usa.html'], ['london', 'countries/co_england.html'],
+    ['paris', 'countries/co_france.html'], ['berlin', 'countries/co_germany.html'],
+    ['tokyo', 'countries/co_japan.html'], ['sydney', 'countries/co_australia.html']
+  ];
+  const match = countryMap.find(item => lower.indexOf(item[0]) >= 0);
+  if (match) country.href = match[1];
+  document.getElementById('note').textContent = 'The historical CGI response itself was not preserved for every entry. These links remain inside the copied local mirror and never redirect to a live or archived web service.';
+}());
+</script>
+</body>
+</html>
