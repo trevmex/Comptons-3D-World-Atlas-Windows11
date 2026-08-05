@@ -43,12 +43,14 @@ The disc must remain mounted while Atlas runs. The current implementation intent
 %LOCALAPPDATA%\Comptons 3D World Atlas Deluxe\Online Archive\Mirror
 ```
 
-The four Atlas Online commands open local files:
+The top-level Atlas Online commands open local files:
 
 - Downloadable Extras
 - 3D World Atlas Home
 - Compton's Home
-- Context-sensitive Links → local archived site map
+- Context-sensitive Links → a generated local page for the current entry request
+
+The last item is important: selecting **New York**, a country, topic, map pin, or another entry and choosing its Online link sends a request containing the entry ID/name. The shim captures that request and writes a local `Mirror/3datlas/entry-links-*.html` page; it no longer collapses every entry into the site map or contacts the retired CGI service. Preserved country/topic/city material is linked from that local page. The original dynamic server response was not archived for every entry, so the generated page is an honest local context index rather than invented live content.
 
 Do not run old installers or enter credentials into historical pages.
 

@@ -26,9 +26,10 @@ Check that these files exist under the local mirror:
 - `3datlas\index.html`
 - `3datlas\download\f_main_dl.html`
 - `3datlas\sitemap.html`
+- `3datlas\entry-links.html`
 - `comptons\index.html`
 
-Re-run the archive sync with Node.js and keep the generated `Mirror` directory beside the installed archive shim.
+Entry-specific requests generate `3datlas\entry-links-*.html` beside the template. Re-run the archive sync with Node.js and keep the generated `Mirror` directory beside the installed archive shim.
 
 ## GitHub hygiene
 

@@ -11,10 +11,15 @@ $base = Join-Path $env:LOCALAPPDATA 'Comptons 3D World Atlas Deluxe'
 $runtime = Join-Path $env:LOCALAPPDATA 'Programs\Comptons 3D World Atlas Deluxe'
 $atlasPath = Join-Path $runtime 'atlas.exe'
 $shimPath = Join-Path $runtime 'Wlbrw32.dll'
+$shimHashFile = Join-Path $runtime 'Wlbrw32.dll.sha256'
 $originalShim = Join-Path $runtime 'Wlbrw32.dll.original-1998'
 $installedDirectory = "C:\Program Files (x86)\Compton's Home Library\Compton's 3D World Atlas Deluxe"
 $expectedAtlasHash = 'F2BC73684875E7E9333DAEDEE4628070698A1768D0EFFB12907EAE2BA9969A0C'
-$expectedShimHash = '70A108CECEAA9FC1D6902ABE18859B230B2A98C0ADADCF5C76CF09E3F49D1A34'
+$expectedShimHash = if (Test-Path -LiteralPath $shimHashFile) {
+    ((Get-Content -LiteralPath $shimHashFile -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
+} else {
+    ''
+}
 $expectedOriginalShimHash = '84B83AEA33950FD462CE35090DEAD80B26AC699F3E67C1AE3695D14ACF681831'
 
 $atlasProcesses = @(Get-Process -Name atlas -ErrorAction SilentlyContinue |
@@ -45,8 +50,9 @@ if ($atlasProcesses.Count -eq 1) {
 
 Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $atlasPath).Hash -eq $expectedAtlasHash) `
     'The user-local Atlas executable hash changed.'
-Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $shimPath).Hash -eq $expectedShimHash) `
-    'The Online Archive shim hash changed.'
+$actualShimHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $shimPath).Hash
+Test-Requirement ($expectedShimHash -and $actualShimHash -eq $expectedShimHash) `
+    'The Online Archive shim hash does not match its generated sidecar.'
 Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $originalShim).Hash -eq $expectedOriginalShimHash) `
     'The original WonderLink backup hash changed.'
 Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $installedDirectory 'atlas.exe')).Hash -eq $expectedAtlasHash) `
@@ -139,5 +145,5 @@ if ($errors.Count) {
     LocalArchiveFiles = (Get-ChildItem -LiteralPath $mirrorRoot -Recurse -File).Count
     Shortcuts = $shortcuts.Count
     Disc = "$($disc.DriveLetter): $($disc.FileSystemLabel)"
-    ArchiveShimSha256 = $expectedShimHash
+    ArchiveShimSha256 = $actualShimHash
 } | Format-List

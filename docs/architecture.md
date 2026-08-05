@@ -12,7 +12,7 @@ The disc's Indeo 3 AVI files are decoded and re-encoded to Microsoft Video 1 wit
 
 ## Online replacement
 
-`src/Atlas-WonderLink-Archive.c` implements the four exports expected by the 1998 Atlas executable. It opens only local files under the user's archive mirror. The live CGI URL in `Atlas.log` is an inert `.invalid` fallback in case the native executable attempts an unhandled request.
+`src/Atlas-WonderLink-Archive.c` implements the four exports expected by the 1998 Atlas executable. Top-level pages open local mirror files. Entry-specific `atlas.cgi` requests are parsed only far enough to identify a context, then rendered into a newly generated local `entry-links-*.html` file containing the original request and links into preserved local material. The live CGI URL in `Atlas.log` is an inert `.invalid` fallback; no request is forwarded to it.
 
 `Sync-AtlasLocalArchive.js` selects captures near the April/May 1998 snapshots, downloads raw (`id_`) Wayback responses, and rewrites same-site HTML links to local relative paths. It is intentionally not a web crawler for arbitrary modern content.
 

@@ -29,7 +29,7 @@ $scriptFiles = @(
     'Capture-AtlasWindow.ps1', 'Click-AtlasPoint.ps1', 'Run-AtlasContentSmokeTests.ps1',
     'Run-AtlasDisplayTests.ps1', 'Test-AtlasAudioSession.ps1', 'Test-AtlasGameMoviesMci.ps1',
     'Test-AtlasOnlineArchive.ps1', 'Validate-AtlasWindows11Setup.ps1',
-    'Convert-AtlasMedia.ps1', 'Validate-AtlasMedia.ps1'
+    'Convert-AtlasMedia.ps1', 'Validate-AtlasMedia.ps1', 'Test-Installation.ps1'
 )
 $onlineDirectory = Join-Path $WorkspaceDirectory 'Online Archive'
 $convertedDirectory = Join-Path $WorkspaceDirectory 'Converted Media'
@@ -46,6 +46,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'src\Atlas-WonderLink-Archive.c') -D
 Copy-Item -LiteralPath (Join-Path $repoRoot 'src\Wlbrw32.def') -Destination $onlineDirectory -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\Sync-AtlasLocalArchive.js') -Destination $onlineDirectory -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'archive\Atlas-Online-Archive.html') -Destination $onlineDirectory -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot 'archive\Atlas-Online-Entry.html') -Destination $onlineDirectory -Force
 
 # Convert the obsolete Indeo AVI files into Microsoft Video 1, retaining the
 # original PCM audio streams. The disc remains the source of all content.

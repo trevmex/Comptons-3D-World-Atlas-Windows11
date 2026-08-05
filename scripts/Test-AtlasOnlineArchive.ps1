@@ -90,8 +90,8 @@ $tests = @(
     },
     [pscustomobject]@{
         CommandId = 263
-        Name = 'Context-sensitive Links'
-        Expected = 'Mirror/3datlas/sitemap.html'
+        Name = 'Entry-specific Context Links'
+        Expected = 'Mirror/3datlas/entry-links-'
     }
 )
 

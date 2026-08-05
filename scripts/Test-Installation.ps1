@@ -19,7 +19,7 @@ Require (Test-Path -LiteralPath $shim) 'The local archive shim is missing.'
 Require (Test-Path -LiteralPath (Join-Path $RuntimeDirectory 'Wlbrw32.dll.original-1998')) 'The original WonderLink DLL backup is missing.'
 
 $mirror = Join-Path $WorkspaceDirectory 'Online Archive\Mirror'
-foreach ($relative in @('3datlas\index.html','3datlas\download\f_main_dl.html','3datlas\sitemap.html','comptons\index.html')) {
+foreach ($relative in @('3datlas\index.html','3datlas\download\f_main_dl.html','3datlas\sitemap.html','3datlas\entry-links.html','comptons\index.html')) {
     Require (Test-Path -LiteralPath (Join-Path $mirror $relative)) "Local archive target is missing: $relative"
 }
 Require ((Get-ChildItem -LiteralPath $mirror -Recurse -File -ErrorAction SilentlyContinue).Count -ge 100) 'The local archive mirror is unexpectedly small.'

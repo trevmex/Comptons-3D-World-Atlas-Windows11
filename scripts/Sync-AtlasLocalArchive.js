@@ -277,9 +277,20 @@ async function main() {
   }
   await Promise.all(Array.from({ length: concurrency }, worker));
 
-  // Provide deterministic aliases for the four URLs the native shim opens.
-  // The files themselves remain the preserved site pages; aliases make the
-  // launch targets explicit and avoid relying on a browser's URL heuristics.
+  // Provide the local context page used for every entry-specific atlas.cgi
+  // request. The native shim generates a per-request local page; this
+  // template is also available for browsing before any entry is opened.
+  const entryTemplateCandidates = [
+    path.join(root, 'Atlas-Online-Entry.html'),
+    path.join(root, '..', 'archive', 'Atlas-Online-Entry.html')
+  ];
+  const entryTemplate = entryTemplateCandidates.find(file => fs.existsSync(file));
+  if (entryTemplate) {
+    await fsp.copyFile(entryTemplate, path.join(mirrorRoot, '3datlas', 'entry-links.html'));
+  }
+
+  // Provide deterministic aliases for the four top-level URLs the native
+  // shim opens. The files themselves remain preserved site pages.
   const aliases = [
     ['3datlas/index.html', '3datlas/index.html'],
     ['3datlas/download/f_main_dl.html', '3datlas/download/f_main_dl.html'],
