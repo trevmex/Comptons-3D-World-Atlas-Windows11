@@ -4,7 +4,7 @@ A reversible, user-local compatibility layer for **Compton's 3D World Atlas Delu
 
 ## Downloadable Windows installer
 
-Download `Comptons-3D-World-Atlas-Windows11-Setup.exe` from the [GitHub Releases page](https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11/releases). The installer contains only this compatibility toolkit; it does not contain the commercial Atlas program or CD data. It refuses to continue unless the physical `3DATLAS` disc is mounted, then runs the complete media conversion and archive setup for the current Windows user. Verify the adjacent `SHA256SUMS.txt` before running it.
+Download `Comptons-3D-World-Atlas-Windows11-Setup.exe` from the [GitHub Releases page](https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11/releases). The installer contains only this compatibility toolkit; it does not contain the commercial Atlas program or CD data. It refuses to continue unless the physical `3DATLAS` disc is mounted, then runs the complete media conversion and archive setup for the current Windows user. The work runs inside the installer progress UI with parallel archive downloads and media conversion; no separate PowerShell console is opened. Verify the adjacent `SHA256SUMS.txt` before running it.
 
 ## One-install promise and the physical-media boundary
 
@@ -21,7 +21,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The installer and script automatically install the user-scoped LGPL FFmpeg tools and Node.js LTS with Windows Package Manager (`winget`) when they are absent. Internet access is required during installation to obtain those tools and the historical archive. No Visual Studio installation is required: the repository carries the independently authored x86 archive shim artifact and also retains its reproducible C build.
 
-The defaults are `D:` for the CD, `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe` for generated data, and `%LOCALAPPDATA%\Programs\Comptons 3D World Atlas Deluxe` for the runtime. The CD can be assigned another drive with `-DiscDrive`, but the chosen volume must still be labeled `3DATLAS`.
+The defaults are `D:` for the CD, `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe` for generated data, and `%LOCALAPPDATA%\Programs\Comptons 3D World Atlas Deluxe` for the runtime. The release installer automatically checks other drive letters when `D:` does not contain the disc; use `/DISC=E:` when launching it to select a specific drive. The PowerShell script accepts `-DiscDrive E:`, but the chosen volume must still be labeled `3DATLAS`.
 
 ## What installation does
 

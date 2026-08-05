@@ -3,12 +3,30 @@ param(
     [string] $DiscDrive = 'D:',
     [string] $WorkspaceDirectory = (Join-Path $env:LOCALAPPDATA 'Comptons 3D World Atlas Deluxe'),
     [string] $RuntimeDirectory = (Join-Path $env:LOCALAPPDATA 'Programs\Comptons 3D World Atlas Deluxe'),
+    [string] $LogPath = '',
     [switch] $SkipArchiveMirror,
     [switch] $SkipToolBootstrap,
     [switch] $SkipShortcutCreation
 )
 
 $ErrorActionPreference = 'Stop'
+$transcriptStarted = $false
+if ($LogPath) {
+    try {
+        $logParent = Split-Path -Parent $LogPath
+        if ($logParent) { New-Item -ItemType Directory -Path $logParent -Force | Out-Null }
+        Start-Transcript -LiteralPath $LogPath -Force | Out-Null
+        $transcriptStarted = $true
+    } catch {
+        Write-Warning "Could not start installer log at '$LogPath': $($_.Exception.Message)"
+    }
+}
+trap {
+    if ($transcriptStarted) {
+        try { Stop-Transcript | Out-Null } catch { }
+    }
+    throw
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $drive = $DiscDrive.TrimEnd('\')
 $driveLetter = $drive.TrimEnd(':')
@@ -30,6 +48,7 @@ if ($runtimeProcess.Count) { throw 'Close the user-local Atlas process before re
 
 $scriptFiles = @(
     'Ensure-AtlasTools.ps1', 'Launch-ComptonsAtlas.ps1', 'Create-AtlasShortcuts.ps1',
+    'Convert-AtlasMediaWorker.ps1',
     'Invoke-AtlasCommand.ps1', 'Capture-AtlasWindow.ps1', 'Click-AtlasPoint.ps1',
     'Run-AtlasContentSmokeTests.ps1', 'Run-AtlasDisplayTests.ps1', 'Test-AtlasAudioSession.ps1',
     'Test-AtlasGameMoviesMci.ps1', 'Test-AtlasOnlineArchive.ps1', 'Validate-AtlasLocalArchive.ps1',
@@ -207,21 +226,32 @@ $shimHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $runtimeShim).Hash
 $shimHash | Set-Content -LiteralPath (Join-Path $RuntimeDirectory 'Wlbrw32.dll.sha256') -Encoding ASCII
 
 if (-not $SkipArchiveMirror) {
-    $oldMirrorRoot = $env:ATLAS_ARCHIVE_MIRROR_ROOT
-    $oldConcurrency = $env:ATLAS_ARCHIVE_CONCURRENCY
-    try {
-        $env:ATLAS_ARCHIVE_MIRROR_ROOT = Join-Path $onlineDirectory 'Mirror'
-        $env:ATLAS_ARCHIVE_CONCURRENCY = '6'
-        & $nodePath (Join-Path $onlineDirectory 'Sync-AtlasLocalArchive.js')
-        if ($LASTEXITCODE) { throw "The Internet Archive mirror failed with exit code $LASTEXITCODE." }
-    } finally {
-        if ($null -eq $oldMirrorRoot) { Remove-Item Env:ATLAS_ARCHIVE_MIRROR_ROOT -ErrorAction SilentlyContinue }
-        else { $env:ATLAS_ARCHIVE_MIRROR_ROOT = $oldMirrorRoot }
-        if ($null -eq $oldConcurrency) { Remove-Item Env:ATLAS_ARCHIVE_CONCURRENCY -ErrorAction SilentlyContinue }
-        else { $env:ATLAS_ARCHIVE_CONCURRENCY = $oldConcurrency }
+    $archiveRoot = Join-Path $onlineDirectory 'Mirror'
+    $archiveValidationScript = Join-Path $WorkspaceDirectory 'Validate-AtlasLocalArchive.ps1'
+    $archiveReused = $false
+    if (Test-Path -LiteralPath $archiveRoot) {
+        Write-Host 'Checking the existing offline Online documentation mirror...'
+        & $archiveValidationScript -MirrorRoot $archiveRoot
+        $archiveReused = ($LASTEXITCODE -eq 0)
+        if ($archiveReused) { Write-Host 'Existing archive mirror is complete; skipping its re-download.' }
     }
-    & (Join-Path $WorkspaceDirectory 'Validate-AtlasLocalArchive.ps1') -MirrorRoot (Join-Path $onlineDirectory 'Mirror')
-    if ($LASTEXITCODE) { throw 'The downloaded Online Archive did not pass completeness validation.' }
+    if (-not $archiveReused) {
+        $oldMirrorRoot = $env:ATLAS_ARCHIVE_MIRROR_ROOT
+        $oldConcurrency = $env:ATLAS_ARCHIVE_CONCURRENCY
+        try {
+            $env:ATLAS_ARCHIVE_MIRROR_ROOT = $archiveRoot
+            if (-not $oldConcurrency) { $env:ATLAS_ARCHIVE_CONCURRENCY = '20' }
+            & $nodePath (Join-Path $onlineDirectory 'Sync-AtlasLocalArchive.js')
+            if ($LASTEXITCODE) { throw "The Internet Archive mirror failed with exit code $LASTEXITCODE." }
+        } finally {
+            if ($null -eq $oldMirrorRoot) { Remove-Item Env:ATLAS_ARCHIVE_MIRROR_ROOT -ErrorAction SilentlyContinue }
+            else { $env:ATLAS_ARCHIVE_MIRROR_ROOT = $oldMirrorRoot }
+            if ($null -eq $oldConcurrency) { Remove-Item Env:ATLAS_ARCHIVE_CONCURRENCY -ErrorAction SilentlyContinue }
+            else { $env:ATLAS_ARCHIVE_CONCURRENCY = $oldConcurrency }
+        }
+        & $archiveValidationScript -MirrorRoot $archiveRoot
+        if ($LASTEXITCODE) { throw 'The downloaded Online Archive did not pass completeness validation.' }
+    }
 }
 
 $mediaInventoryPath = Join-Path $convertedDirectory 'media-inventory.json'
@@ -256,6 +286,8 @@ foreach ($doc in (Get-ChildItem -LiteralPath (Join-Path $repoRoot 'docs') -File 
     Copy-Item -LiteralPath $doc.FullName -Destination (Join-Path $WorkspaceDirectory $doc.Name) -Force
 }
 if (-not $SkipShortcutCreation) { & (Join-Path $WorkspaceDirectory 'Create-AtlasShortcuts.ps1') }
+
+if ($transcriptStarted) { Stop-Transcript | Out-Null }
 
 [pscustomobject]@{
     Status = if ($SkipArchiveMirror) { 'INSTALLED_ARCHIVE_NOT_SYNCED' } else { 'INSTALLED' }

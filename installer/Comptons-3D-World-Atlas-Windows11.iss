@@ -1,5 +1,5 @@
 #define MyAppName "Compton's 3D World Atlas Deluxe - Windows 11 Compatibility"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Trevor Menagh"
 #define MyAppURL "https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11"
 
@@ -44,11 +44,46 @@ Source: "..\build\Wlbrw32.dll.sha256"; DestDir: "{app}\build"; Flags: ignorevers
 var
   DiscDrive: string;
 
+function IsAtlasDisc(const Drive: string): Boolean;
+begin
+  Result := FileExists(Drive + '\ATLAS.EXE') and FileExists(Drive + '\WLBRW32.DLL');
+end;
+
+function FindAtlasDisc: string;
+var
+  Index: Integer;
+  Candidate: string;
+begin
+  Result := '';
+  for Index := Ord('A') to Ord('Z') do begin
+    Candidate := Chr(Index) + ':';
+    if IsAtlasDisc(Candidate) then begin
+      Result := Candidate;
+      exit;
+    end;
+  end;
+end;
+
 function GetDiscDrive: string;
 var
   Value: string;
+  ExplicitDrive: string;
 begin
-  Value := ExpandConstant('{param:DISC|D:}');
+  ExplicitDrive := ExpandConstant('{param:DISC|}');
+  if ExplicitDrive = '' then begin
+    if IsAtlasDisc('D:') then
+      Result := 'D:'
+    else begin
+      Value := FindAtlasDisc;
+      if Value <> '' then
+        Result := Value
+      else
+        Result := 'D:';
+    end;
+    exit;
+  end;
+
+  Value := ExplicitDrive;
   while (Length(Value) > 0) and ((Value[Length(Value)] = '\') or (Value[Length(Value)] = '/')) do
     Delete(Value, Length(Value), 1);
   if (Length(Value) = 2) and (Value[2] = ':') then
@@ -78,19 +113,27 @@ var
   Parameters: string;
   ResultCode: Integer;
   AppRoot: string;
+  LogPath: string;
 begin
   AppRoot := ExpandConstant('{app}');
+  LogPath := AppRoot + '\Install-AtlasWindows11.log';
+  WizardForm.StatusLabel.Caption := 'Preparing Atlas media and offline Online documentation...';
+  WizardForm.ProgressGauge.Style := npbstMarquee;
   PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "' +
-    AppRoot + '\scripts\Install-AtlasWindows11.ps1" -DiscDrive "' + DiscDrive + '"';
-  Result := Exec(PowerShell, Parameters, AppRoot, SW_SHOW, ewWaitUntilTerminated, ResultCode);
+    AppRoot + '\scripts\Install-AtlasWindows11.ps1" -DiscDrive "' + DiscDrive +
+    '" -LogPath "' + LogPath + '"';
+  Result := Exec(PowerShell, Parameters, AppRoot, SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  WizardForm.ProgressGauge.Style := npbstNormal;
+  WizardForm.StatusLabel.Caption := 'Installation complete.';
   if not Result then begin
     MsgBox('Windows PowerShell could not be started.', mbError, MB_OK);
     exit;
   end;
   if ResultCode <> 0 then begin
     MsgBox('The compatibility installation failed with exit code ' + IntToStr(ResultCode) + '.' + #13#10 + #13#10 +
-      'The physical disc must remain mounted and Internet access is required for the archived Online documentation.',
+      'Detailed diagnostic output was written to:' + #13#10 + LogPath + #13#10 + #13#10 +
+      'The physical disc must remain mounted and the archive endpoint must be reachable.',
       mbError, MB_OK);
     Result := False;
   end;

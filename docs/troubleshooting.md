@@ -8,7 +8,7 @@ The GitHub release installer is a user-scoped Inno Setup package. It extracts th
 .\installer\Build-AtlasInstaller.ps1
 ```
 
-The output is `dist\Comptons-3D-World-Atlas-Windows11-Setup.exe` plus `SHA256SUMS.txt`. A release install requires the CD at the configured drive; `/DISC=E:` is available for another labeled optical drive.
+The output is `dist\Comptons-3D-World-Atlas-Windows11-Setup.exe` plus `SHA256SUMS.txt`. A release install requires the CD at the configured drive; the installer checks other drive letters automatically when `/DISC` is omitted, and `/DISC=E:` is available for a specific labeled optical drive. Archive downloads use a bounded parallel pool with a low-concurrency retry pass, and AVI conversion uses four local worker processes. If the compatibility phase fails, inspect `Install-AtlasWindows11.log` in `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe Toolkit`.
 
 ## Installer says the disc is missing
 

@@ -25,7 +25,7 @@ const mirrorRoot = process.env.ATLAS_ARCHIVE_MIRROR_ROOT
 const stagingRoot = `${mirrorRoot}.staging-${process.pid}`;
 const manifestRoot = path.join(stagingRoot, 'manifests');
 const userAgent = 'Comptons-Atlas-Windows11-ArchiveMirror/2.0 (+https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11)';
-const concurrency = Math.max(1, Math.min(16, Number(process.env.ATLAS_ARCHIVE_CONCURRENCY || 6)));
+const concurrency = Math.max(1, Math.min(24, Number(process.env.ATLAS_ARCHIVE_CONCURRENCY || 12)));
 const retryCount = 5;
 const requestTimeoutMs = 60000;
 const blankImage = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
@@ -395,37 +395,68 @@ async function main() {
 
   let completed = 0;
   let failed = 0;
-  let cursor = 0;
   const failures = [];
-  async function worker() {
-    while (true) {
-      const index = cursor++;
-      if (index >= all.length) return;
-      const entry = all[index];
-      const destination = path.join(stagingRoot, ...entry.local.split('/'));
-      try {
-        const response = await fetchBytes(entry.sourceUrl);
-        await fsp.mkdir(path.dirname(destination), { recursive: true });
-        const bytes = isHtml(entry, response.contentType)
-          ? Buffer.from(rewriteHtml(response.bytes.toString('utf8'), entry, entriesByKey), 'utf8')
-          : isCss(entry, response.contentType)
-            ? Buffer.from(rewriteCss(response.bytes.toString('utf8'), entry, entriesByKey), 'utf8')
-            : response.bytes;
-        await fsp.writeFile(destination, bytes);
-        entry.downloadedBytes = bytes.length;
-        entry.sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-        completed++;
-        if (completed % 50 === 0 || completed === all.length) {
-          process.stdout.write(`Downloaded ${completed}/${all.length}\n`);
+
+  async function downloadEntry(entry) {
+    const destination = path.join(stagingRoot, ...entry.local.split('/'));
+    const response = await fetchBytes(entry.sourceUrl);
+    await fsp.mkdir(path.dirname(destination), { recursive: true });
+    const bytes = isHtml(entry, response.contentType)
+      ? Buffer.from(rewriteHtml(response.bytes.toString('utf8'), entry, entriesByKey), 'utf8')
+      : isCss(entry, response.contentType)
+        ? Buffer.from(rewriteCss(response.bytes.toString('utf8'), entry, entriesByKey), 'utf8')
+        : response.bytes;
+    await fsp.writeFile(destination, bytes);
+    entry.downloadedBytes = bytes.length;
+    entry.sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  }
+
+  async function downloadBatch(entries, workerCount, label) {
+    let cursor = 0;
+    const batchFailures = [];
+    async function worker() {
+      while (true) {
+        const index = cursor++;
+        if (index >= entries.length) return;
+        const entry = entries[index];
+        try {
+          await downloadEntry(entry);
+          completed++;
+          if (completed % 50 === 0 || completed === all.length) {
+            process.stdout.write(`Downloaded ${completed}/${all.length}\n`);
+          }
+        } catch (error) {
+          batchFailures.push({ entry, error });
+          process.stderr.write(`${label} ${entry.local}: ${error && error.message || error}\n`);
         }
-      } catch (error) {
-        failed++;
-        failures.push({ local: entry.local, source: entry.sourceUrl, error: String(error && error.message || error) });
-        process.stderr.write(`FAILED ${entry.local}: ${error && error.message || error}\n`);
       }
     }
+    await Promise.all(Array.from({ length: workerCount }, worker));
+    return batchFailures;
   }
-  await Promise.all(Array.from({ length: concurrency }, worker));
+
+  process.stdout.write(`Downloading ${all.length} archive files with ${concurrency} workers...\n`);
+  let batchFailures = await downloadBatch(all, concurrency, 'FAILED');
+  if (batchFailures.length) {
+    // Wayback occasionally throttles a burst of requests even when the
+    // individual request retry loop succeeds at lower rates. Retry only the
+    // failed entries with a small pool instead of discarding the whole run.
+    const retryConcurrency = Math.max(1, Math.min(4, Math.floor(concurrency / 4)));
+    process.stdout.write(`Retrying ${batchFailures.length} throttled/failed archive files with ${retryConcurrency} workers...\n`);
+    batchFailures = await downloadBatch(
+      batchFailures.map(item => item.entry),
+      retryConcurrency,
+      'RETRY FAILED'
+    );
+  }
+  failed = batchFailures.length;
+  for (const item of batchFailures) {
+    failures.push({
+      local: item.entry.local,
+      source: item.entry.sourceUrl,
+      error: String(item.error && item.error.message || item.error)
+    });
+  }
 
   const entryTemplateCandidates = [
     path.join(root, 'Atlas-Online-Entry.html'),

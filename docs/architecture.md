@@ -24,4 +24,6 @@ Atlas owns the video scaling path. The compatibility layer invokes the built-in 
 
 The public repository includes the independently authored x86 archive shim artifact so installation does not require Visual Studio. `scripts/Build-WonderLink-Archive.cmd` remains the reproducible source build used by CI and maintainers. `installer/Comptons-3D-World-Atlas-Windows11.iss` packages the redistributable toolkit with Inno Setup; its Pascal bootstrap checks the physical disc before invoking the normal PowerShell installer and propagates failures.
 
+The installer runs the PowerShell phase hidden behind its own progress UI. Archive downloads use a bounded concurrent pool with a low-concurrency retry pass, while AVI files are staged locally and converted/validated by four worker processes. A complete existing archive mirror is validated and reused on subsequent runs instead of being downloaded again.
+
 The commercial Atlas executable, CD files, converted media, and generated archive mirror are never committed or placed in the release installer.

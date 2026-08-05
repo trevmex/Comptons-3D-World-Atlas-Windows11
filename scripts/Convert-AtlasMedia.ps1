@@ -88,66 +88,95 @@ New-Item -ItemType Directory -Path $aviRoot, $gameMovieRoot -Force | Out-Null
 $manifest = New-Object Collections.Generic.List[object]
 $convertedCount = 0
 $seenDestinations = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-foreach ($file in $sourceFiles) {
-    $isGameMovie = $file.FullName.StartsWith(($discGameMovies.TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase)
-    $isMiniFlag = $file.FullName -ieq $miniflag
-    if ($isGameMovie) {
-        $destinationDirectory = $gameMovieRoot
-        $sourceRelative = 'GAME\MOVIES\' + $file.Name
-    } elseif ($isMiniFlag) {
-        $destinationDirectory = $gameRoot
-        $sourceRelative = 'GAME\' + $file.Name
-    } else {
-        $destinationDirectory = $aviRoot
-        $sourceRelative = 'AVI\' + $file.Name
+$sourceStageRoot = Join-Path $OutputRoot '.source-stage'
+$workerRoot = Join-Path $OutputRoot '.conversion-workers'
+
+function Quote-ProcessArgument([string] $Value) {
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+try {
+    New-Item -ItemType Directory -Path $sourceStageRoot, $workerRoot -Force | Out-Null
+    $workItems = New-Object Collections.Generic.List[object]
+    $stageIndex = 0
+    Write-Host "Staging $($sourceFiles.Count) source movies for parallel conversion..."
+    foreach ($file in $sourceFiles) {
+        $isGameMovie = $file.FullName.StartsWith(($discGameMovies.TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase)
+        $isMiniFlag = $file.FullName -ieq $miniflag
+        if ($isGameMovie) {
+            $destinationDirectory = $gameMovieRoot
+            $sourceRelative = 'GAME\MOVIES\' + $file.Name
+        } elseif ($isMiniFlag) {
+            $destinationDirectory = $gameRoot
+            $sourceRelative = 'GAME\' + $file.Name
+        } else {
+            $destinationDirectory = $aviRoot
+            $sourceRelative = 'AVI\' + $file.Name
+        }
+        $destination = Join-Path $destinationDirectory $file.Name.ToUpperInvariant()
+        if (-not $seenDestinations.Add($destination)) { throw "Duplicate media destination: $destination" }
+
+        $stagedSource = Join-Path $sourceStageRoot ('{0:D3}-{1}' -f $stageIndex, $file.Name)
+        Copy-Item -LiteralPath $file.FullName -Destination $stagedSource -Force
+        $workItems.Add([pscustomobject]@{
+            SourcePath = $stagedSource
+            OriginalSource = $file.FullName
+            SourceRelative = $sourceRelative
+            FileName = $file.Name.ToUpperInvariant()
+            Destination = $destination
+        })
+        $stageIndex++
     }
-    $destination = Join-Path $destinationDirectory $file.Name.ToUpperInvariant()
-    if (-not $seenDestinations.Add($destination)) { throw "Duplicate media destination: $destination" }
 
-    $sourceInfo = Invoke-Probe $file.FullName
-    $sourceVideo = Get-VideoStream $sourceInfo
-    if (-not $sourceVideo) { throw "No video stream was found in $($file.FullName)." }
-    $sourceAudio = @(Get-AudioStreams $sourceInfo)
-    $sourceCodec = "$($sourceVideo.codec_name)"
-    $temporary = "$destination.partial.avi"
-    Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    $workerScript = Join-Path $PSScriptRoot 'Convert-AtlasMediaWorker.ps1'
+    if (-not (Test-Path -LiteralPath $workerScript)) { throw "The media worker is missing: $workerScript" }
+    $workerCount = [Math]::Max(1, [Math]::Min(4, [Environment]::ProcessorCount))
+    $workerCount = [Math]::Min($workerCount, $workItems.Count)
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $workers = New-Object Collections.Generic.List[object]
+    Write-Host "Converting and validating media with $workerCount parallel workers..."
 
-    if ($sourceCodec -match '(?i)^indeo') {
-        & $ffmpeg -hide_banner -loglevel error -nostdin -y -i $file.FullName `
-            -map 0:v:0 -map '0:a?' -c:v msvideo1 -pix_fmt rgb555le -vtag MSVC `
-            -fps_mode passthrough -c:a copy -- $temporary
-        if ($LASTEXITCODE) { throw "ffmpeg failed for $($file.Name)." }
-        $convertedCount++
-    } else {
-        Copy-Item -LiteralPath $file.FullName -Destination $temporary -Force
+    for ($workerIndex = 0; $workerIndex -lt $workerCount; $workerIndex++) {
+        $batch = New-Object Collections.Generic.List[object]
+        for ($itemIndex = $workerIndex; $itemIndex -lt $workItems.Count; $itemIndex += $workerCount) {
+            $batch.Add($workItems[$itemIndex])
+        }
+        $inputPath = Join-Path $workerRoot ("input-{0}.json" -f $workerIndex)
+        $outputPath = Join-Path $workerRoot ("output-{0}.json" -f $workerIndex)
+        $stdoutPath = Join-Path $workerRoot ("stdout-{0}.log" -f $workerIndex)
+        $stderrPath = Join-Path $workerRoot ("stderr-{0}.log" -f $workerIndex)
+        $batch | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $inputPath -Encoding UTF8
+        $parameters = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File ' + (Quote-ProcessArgument $workerScript) +
+            ' -InputPath ' + (Quote-ProcessArgument $inputPath) +
+            ' -OutputPath ' + (Quote-ProcessArgument $outputPath) +
+            ' -FfmpegPath ' + (Quote-ProcessArgument $ffmpeg) +
+            ' -FfprobePath ' + (Quote-ProcessArgument $ffprobe)
+        $process = Start-Process -FilePath $powershell -ArgumentList $parameters -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $workers.Add([pscustomobject]@{
+            Process = $process
+            OutputPath = $outputPath
+            StderrPath = $stderrPath
+            WorkerIndex = $workerIndex
+        })
     }
-    Move-Item -LiteralPath $temporary -Destination $destination -Force
 
-    $replacementInfo = Invoke-Probe $destination
-    $replacementVideo = Get-VideoStream $replacementInfo
-    $replacementCodec = "$($replacementVideo.codec_name)"
-    if ($sourceCodec -match '(?i)^indeo' -and $replacementCodec -ne 'msvideo1') {
-        throw "The converted codec for $($file.Name) is '$replacementCodec', not Microsoft Video 1."
+    foreach ($worker in $workers) {
+        $worker.Process.WaitForExit()
+        if ($worker.Process.ExitCode -or -not (Test-Path -LiteralPath $worker.OutputPath)) {
+            $errorText = if (Test-Path -LiteralPath $worker.StderrPath) {
+                (Get-Content -LiteralPath $worker.StderrPath -Raw).Trim()
+            } else { '' }
+            throw "Media worker $($worker.WorkerIndex) failed with exit code $($worker.Process.ExitCode) or produced no result. $errorText"
+        }
+        $parsedResults = Get-Content -LiteralPath $worker.OutputPath -Raw | ConvertFrom-Json
+        foreach ($result in @($parsedResults | ForEach-Object { $_ })) {
+            $manifest.Add($result)
+        }
     }
-    if ($replacementCodec -match '(?i)^indeo') { throw "Obsolete Indeo remains in $destination." }
-    $replacementAudio = @(Compare-AudioStreams $sourceInfo $replacementInfo $file.Name)
-
-    $manifest.Add([pscustomobject]@{
-        SourceRelative = $sourceRelative
-        FileName = $file.Name.ToUpperInvariant()
-        Source = $file.FullName
-        Replacement = $destination
-        SourceSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash
-        ReplacementSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
-        SourceCodec = $sourceCodec
-        ReplacementCodec = $replacementCodec
-        AudioStreams = $sourceAudio.Count
-        AudioCodecs = (($replacementAudio | ForEach-Object { $_.codec_name }) -join ',')
-        VideoWidth = $replacementVideo.width
-        VideoHeight = $replacementVideo.height
-        DurationSeconds = $replacementVideo.duration
-        Converted = ($sourceCodec -match '(?i)^indeo')
-    })
+    $convertedCount = @($manifest | Where-Object { $_.Converted }).Count
+} finally {
+    Remove-Item -LiteralPath $sourceStageRoot, $workerRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if (Test-Path -LiteralPath $discGame) {
