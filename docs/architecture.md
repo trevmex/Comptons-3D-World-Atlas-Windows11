@@ -4,7 +4,7 @@
 
 The physical CD is the source of truth and is never modified. The installer copies only the small original Atlas runtime to `%LOCALAPPDATA%\Programs\Comptons 3D World Atlas Deluxe`, writes a per-user `Atlas-Config.json`, and redirects video/game roots to `%LOCALAPPDATA%\Comptons 3D World Atlas Deluxe\Converted Media`. Maps, chunks, images, help, sounds, statistics, and other non-video assets continue to come from the mounted `3DATLAS` disc.
 
-The installer does not run the original 1998 setup. That setup can install obsolete system codecs and 16-bit components that are neither required nor safe on Windows 11.
+The installer does not run the original 1998 setup. That setup can install obsolete system codecs and 16-bit components that are neither required nor safe on Windows 11. Each install is prepared in a per-run staging tree; the runtime, converted media, and archive mirror are published only after the replacement `Wlbrw32.dll` has been hash-verified, so a failed rerun cannot leave the old config pointing at the original DLL.
 
 ## Media compatibility
 

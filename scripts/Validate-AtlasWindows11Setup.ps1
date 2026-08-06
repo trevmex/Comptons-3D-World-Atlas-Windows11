@@ -22,6 +22,7 @@ $archive = $config.ArchiveMirror
 $converted = $config.ConvertedMedia
 $atlasPath = $config.AtlasExecutable
 $shimPath = Join-Path $runtime 'Wlbrw32.dll'
+$shimHashPath = Join-Path $runtime 'Wlbrw32.dll.sha256'
 $originalShim = Join-Path $runtime 'Wlbrw32.dll.original-1998'
 $logPath = $config.AtlasLog
 
@@ -32,7 +33,13 @@ if (Test-Path -LiteralPath $atlasPath) {
     Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $atlasPath).Hash -eq $config.AtlasExeSha256) 'The user-local Atlas executable hash changed.'
 }
 if (Test-Path -LiteralPath $shimPath) {
-    Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $shimPath).Hash -eq $config.ShimSha256) 'The archive shim hash does not match Atlas-Config.json.'
+    $actualShimHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $shimPath).Hash
+    Test-Requirement ($actualShimHash -eq $config.ShimSha256) 'The archive shim hash does not match Atlas-Config.json.'
+    Test-Requirement (Test-Path -LiteralPath $shimHashPath) 'The archive shim sidecar hash is missing.'
+    if (Test-Path -LiteralPath $shimHashPath) {
+        $sidecarHash = ((Get-Content -LiteralPath $shimHashPath -Raw).Trim() -split '\s+')[0].ToUpperInvariant()
+        Test-Requirement ($sidecarHash -eq $actualShimHash.ToUpperInvariant()) 'The archive shim sidecar hash does not match the installed DLL.'
+    }
 }
 if (Test-Path -LiteralPath $originalShim) {
     Test-Requirement ((Get-FileHash -Algorithm SHA256 -LiteralPath $originalShim).Hash -eq $config.OriginalShimSha256) 'The original WonderLink backup hash changed.'

@@ -1,5 +1,5 @@
 #define MyAppName "Compton's 3D World Atlas Deluxe - Windows 11 Compatibility"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.2.1"
 #define MyAppPublisher "Trevor Menagh"
 #define MyAppURL "https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11"
 
@@ -216,8 +216,9 @@ begin
   if ResultCode <> 0 then begin
     if not WizardSilent then
       MsgBox('The compatibility installation failed with exit code ' + IntToStr(ResultCode) + '.' + #13#10 + #13#10 +
+        'Your previous working installation is preserved. Correct the reported issue, keep the physical disc mounted, and run the installer again.' + #13#10 + #13#10 +
         'Detailed diagnostic output was written to:' + #13#10 + LogPath + #13#10 + #13#10 +
-        'The physical disc must remain mounted and the archive endpoint must be reachable.',
+        'The archive endpoint must be reachable unless a complete local mirror already exists.',
         mbError, MB_OK);
     Result := False;
   end;
