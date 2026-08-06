@@ -82,6 +82,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Set up MSVC x86 toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
       - name: Build native archive shim
         shell: pwsh
         run: .\scripts\Build-WonderLink-Archive.cmd

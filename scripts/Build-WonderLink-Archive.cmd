@@ -15,6 +15,10 @@ if defined VSDEVCMD (
     call "%VSROOT%\Common7\Tools\VsDevCmd.bat" -no_logo -arch=x86 -host_arch=x64
   ) else if exist "C:\VSBT\Common7\Tools\VsDevCmd.bat" (
     call "C:\VSBT\Common7\Tools\VsDevCmd.bat" -no_logo -arch=x86 -host_arch=x64
+  ) else if defined VCToolsInstallDir (
+    rem The caller already initialized an MSVC developer environment.
+  ) else if defined VCINSTALLDIR (
+    rem The caller already initialized an MSVC developer environment.
   ) else (
     echo Visual Studio Build Tools with the x86 C++ workload is required. 1>&2
     exit /b 2
