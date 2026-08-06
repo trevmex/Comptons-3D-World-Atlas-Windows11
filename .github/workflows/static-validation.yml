@@ -132,6 +132,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
       - name: Download built installer
         uses: actions/download-artifact@v4
         with:
