@@ -513,7 +513,24 @@ async function main() {
   await replaceMirror();
 }
 
-main().catch(async error => {
-  console.error(error.stack || error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch(async error => {
+    console.error(error.stack || error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  canonicalOriginal,
+  entryFor,
+  findMappedEntry,
+  isCss,
+  isHtml,
+  isNetworkReference,
+  replacementFor,
+  rewriteCss,
+  rewriteHtml,
+  selectEntries,
+  sites,
+  splitReference
+};

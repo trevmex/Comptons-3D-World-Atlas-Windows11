@@ -1,50 +1,145 @@
-name: Static validation
+name: CI
 
 on:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  validate:
+  test:
+    name: Unit and static tests
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Check archive synchronizer syntax
-        run: node --check scripts/Sync-AtlasLocalArchive.js
-      - name: Verify published x86 shim artifact
+
+      - name: Install Pester 5
         shell: pwsh
         run: |
-          $artifact = 'build/Wlbrw32.dll'
-          $sidecar = 'build/Wlbrw32.dll.sha256'
-          if (-not (Test-Path $artifact) -or -not (Test-Path $sidecar)) { throw 'The published archive shim artifact or hash is missing.' }
-          $expected = ((Get-Content -Raw $sidecar).Trim() -split '\s+')[0].ToUpperInvariant()
-          $actual = (Get-FileHash -Algorithm SHA256 $artifact).Hash
-          if ($actual -ne $expected) { throw "Shim hash mismatch: $actual != $expected" }
-          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $artifact))
-          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
-          if ($machine -ne 0x014c) { throw "The published shim is not x86 (machine 0x{0:X4})." -f $machine }
-      - name: Parse PowerShell scripts
+          $pester = Get-Module -ListAvailable Pester |
+            Where-Object { $_.Version -ge [version]'5.0.0' } |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+          if (-not $pester) {
+            Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          }
+
+      - name: Run PowerShell unit tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.0.0 -Force
+          $config = New-PesterConfiguration
+          $config.Run.Path = 'tests/PowerShell'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+      - name: Run Node.js unit tests
+        run: node --test tests/Node/Sync-AtlasLocalArchive.test.js
+
+      - name: Parse PowerShell source
         shell: pwsh
         run: |
           $errors = @()
-          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
-            try { [void][scriptblock]::Create((Get-Content -Raw $_.FullName)) }
-            catch { $errors += "$($_.Name): $($_.Exception.Message)" }
+          Get-ChildItem scripts -File | Where-Object { $_.Extension -in '.ps1', '.psm1' } | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$tokens, [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors) {
+              $errors += "$($_.Name): $($parseErrors -join '; ')"
+            }
           }
           if ($errors) { $errors | Write-Error; exit 1 }
+
+      - name: Check archive synchronizer syntax
+        run: node --check scripts/Sync-AtlasLocalArchive.js
+
+      - name: Verify published x86 shim artifact
+        shell: pwsh
+        run: |
+          Import-Module .\scripts\AtlasInstaller.Core.psm1 -Force
+          $info = Test-AtlasShimArtifact -Path 'build/Wlbrw32.dll'
+          $expected = ((Get-Content -Raw 'build/Wlbrw32.dll.sha256').Trim() -split '\s+')[0].ToUpperInvariant()
+          if ($info.Hash -ne $expected) { throw "Shim hash mismatch: $($info.Hash) != $expected" }
+
+  build-installer:
+    name: Build Windows installer
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
       - name: Build native archive shim
         shell: pwsh
         run: .\scripts\Build-WonderLink-Archive.cmd
-      - name: Refresh built shim hash
+
+      - name: Refresh and verify shim hash
         shell: pwsh
-        run: (Get-FileHash -Algorithm SHA256 build/Wlbrw32.dll).Hash + '  Wlbrw32.dll' | Set-Content build/Wlbrw32.dll.sha256 -Encoding ASCII
-      - name: Install Inno Setup
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 'build/Wlbrw32.dll').Hash
+          "$hash  Wlbrw32.dll" | Set-Content 'build/Wlbrw32.dll.sha256' -Encoding ASCII
+          Import-Module .\scripts\AtlasInstaller.Core.psm1 -Force
+          $info = Test-AtlasShimArtifact -Path 'build/Wlbrw32.dll'
+          if ($info.Hash -ne $hash) { throw 'The built shim hash changed during verification.' }
+
+      - name: Build installer
         shell: pwsh
-        run: winget install --id JRSoftware.InnoSetup --exact --scope user --silent --accept-source-agreements --accept-package-agreements
-      - name: Build Windows installer
-        shell: pwsh
-        run: .\installer\Build-AtlasInstaller.ps1
+        run: |
+          $iscc = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+          ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+          if (-not $iscc) {
+            winget install --id JRSoftware.InnoSetup --exact --scope user --silent `
+              --accept-source-agreements --accept-package-agreements
+          }
+          & .\installer\Build-AtlasInstaller.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE\dist"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Comptons-3D-World-Atlas-Windows11-installer
+          path: |
+            dist/Comptons-3D-World-Atlas-Windows11-Setup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built installer
+        uses: actions/download-artifact@v4
+        with:
+          name: Comptons-3D-World-Atlas-Windows11-installer
+          path: dist
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/Comptons-3D-World-Atlas-Windows11-Setup.exe dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$tag" dist/Comptons-3D-World-Atlas-Windows11-Setup.exe dist/SHA256SUMS.txt \
+              --title "$tag — Windows 11 compatibility" --generate-notes
+          fi

@@ -1,5 +1,5 @@
 #define MyAppName "Compton's 3D World Atlas Deluxe - Windows 11 Compatibility"
-#define MyAppVersion "1.2.1"
+#define MyAppVersion "1.2.2"
 #define MyAppPublisher "Trevor Menagh"
 #define MyAppURL "https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11"
 

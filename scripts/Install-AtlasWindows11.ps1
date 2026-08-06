@@ -10,6 +10,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$coreModulePath = Join-Path $PSScriptRoot 'AtlasInstaller.Core.psm1'
+if (-not (Test-Path -LiteralPath $coreModulePath)) {
+    throw "The installer core module is missing: $coreModulePath"
+}
+Import-Module -Name $coreModulePath -Force
 $transcriptStarted = $false
 $transactionId = [Guid]::NewGuid().ToString('N')
 $stagingRoot = ''
@@ -34,57 +39,6 @@ if ($LogPath) {
     }
 }
 
-function Restore-PublishedDirectory {
-    param(
-        [string] $LivePath,
-        [string] $BackupPath,
-        [bool] $WasPublished
-    )
-
-    if (-not $WasPublished) { return }
-    if (Test-Path -LiteralPath $LivePath) {
-        Remove-Item -LiteralPath $LivePath -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    if ($BackupPath -and (Test-Path -LiteralPath $BackupPath)) {
-        Move-Item -LiteralPath $BackupPath -Destination $LivePath -Force -ErrorAction SilentlyContinue | Out-Null
-    }
-}
-
-function Publish-StagedDirectory {
-    param(
-        [string] $StagedPath,
-        [string] $LivePath
-    )
-
-    if (-not (Test-Path -LiteralPath $StagedPath)) {
-        throw "The staged installation directory is missing: $StagedPath"
-    }
-    $liveParent = Split-Path -Parent $LivePath
-    if ($liveParent) { New-Item -ItemType Directory -Path $liveParent -Force | Out-Null }
-
-    $backupPath = ''
-    if (Test-Path -LiteralPath $LivePath) {
-        $backupPath = "$LivePath.install-backup-$transactionId"
-        if (Test-Path -LiteralPath $backupPath) {
-            Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction Stop
-        }
-        Move-Item -LiteralPath $LivePath -Destination $backupPath -Force -ErrorAction Stop | Out-Null
-    }
-
-    try {
-        Move-Item -LiteralPath $StagedPath -Destination $LivePath -Force -ErrorAction Stop | Out-Null
-    } catch {
-        if (Test-Path -LiteralPath $LivePath) {
-            Remove-Item -LiteralPath $LivePath -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        if ($backupPath -and (Test-Path -LiteralPath $backupPath)) {
-            Move-Item -LiteralPath $backupPath -Destination $LivePath -Force -ErrorAction SilentlyContinue | Out-Null
-        }
-        throw
-    }
-    return $backupPath
-}
-
 trap {
     $failure = $_
     try {
@@ -97,9 +51,9 @@ trap {
                     Remove-Item -LiteralPath $liveConfigPath -Force -ErrorAction SilentlyContinue
                 }
             }
-            Restore-PublishedDirectory (Join-Path $WorkspaceDirectory 'Online Archive\Mirror') $archiveBackupPath $archivePublished
-            Restore-PublishedDirectory (Join-Path $WorkspaceDirectory 'Converted Media') $convertedBackupPath $convertedPublished
-            Restore-PublishedDirectory $RuntimeDirectory $runtimeBackupPath $runtimePublished
+            Restore-AtlasPublishedDirectory -LivePath (Join-Path $WorkspaceDirectory 'Online Archive\Mirror') -BackupPath $archiveBackupPath -WasPublished $archivePublished
+            Restore-AtlasPublishedDirectory -LivePath (Join-Path $WorkspaceDirectory 'Converted Media') -BackupPath $convertedBackupPath -WasPublished $convertedPublished
+            Restore-AtlasPublishedDirectory -LivePath $RuntimeDirectory -BackupPath $runtimeBackupPath -WasPublished $runtimePublished
             if ($stagingRoot -and (Test-Path -LiteralPath $stagingRoot)) {
                 Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
             }
@@ -132,7 +86,7 @@ $runtimeProcess = @(Get-Process -Name atlas -ErrorAction SilentlyContinue | Wher
 if ($runtimeProcess.Count) { throw 'Close the user-local Atlas process before reinstalling.' }
 
 $scriptFiles = @(
-    'Ensure-AtlasTools.ps1', 'Launch-ComptonsAtlas.ps1', 'Create-AtlasShortcuts.ps1',
+    'AtlasInstaller.Core.psm1', 'Ensure-AtlasTools.ps1', 'Launch-ComptonsAtlas.ps1', 'Create-AtlasShortcuts.ps1',
     'Convert-AtlasMediaWorker.ps1',
     'Invoke-AtlasCommand.ps1', 'Capture-AtlasWindow.ps1', 'Click-AtlasPoint.ps1',
     'Run-AtlasContentSmokeTests.ps1', 'Run-AtlasDisplayTests.ps1', 'Test-AtlasAudioSession.ps1',
@@ -153,15 +107,8 @@ if (-not (Test-Path -LiteralPath $prebuiltShim)) {
     if ($LASTEXITCODE) { throw "The WonderLink archive shim build failed with exit code $LASTEXITCODE." }
 }
 if (-not (Test-Path -LiteralPath $prebuiltShim)) { throw "The toolkit did not provide a built x86 Wlbrw32.dll." }
-$shimBytes = [IO.File]::ReadAllBytes($prebuiltShim)
-if ($shimBytes.Length -lt 0x40) { throw 'The archive shim is too small to be a PE DLL.' }
-$shimPeOffset = [BitConverter]::ToInt32($shimBytes, 0x3c)
-if ($shimPeOffset -lt 0 -or ($shimPeOffset + 6) -gt $shimBytes.Length) {
-    throw 'The archive shim has an invalid PE header.'
-}
-$shimMachine = [BitConverter]::ToUInt16($shimBytes, $shimPeOffset + 4)
-if ($shimMachine -ne 0x014c) { throw 'The archive shim is not an x86 PE DLL.' }
-$prebuiltShimHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $prebuiltShim).Hash
+$shimInfo = Test-AtlasShimArtifact -Path $prebuiltShim
+$prebuiltShimHash = $shimInfo.Hash
 
 $onlineDirectory = Join-Path $WorkspaceDirectory 'Online Archive'
 $convertedDirectory = Join-Path $WorkspaceDirectory 'Converted Media'
@@ -234,34 +181,6 @@ $runtimeIni = Join-Path $RuntimeDirectory 'Atlas.ini'
 $originalShim = Join-Path $RuntimeDirectory 'Wlbrw32.dll.original-1998'
 $runtimeShim = Join-Path $RuntimeDirectory 'Wlbrw32.dll'
 
-function Set-SectionBody([string] $Text, [string] $Section, [string] $Body) {
-    $pattern = "(?ms)^\[$([regex]::Escape($Section))\]\r?\n(?<body>.*?)(?=^\[|\z)"
-    $match = [regex]::Match($Text, $pattern)
-    $replacement = "[$Section]`r`n$Body`r`n"
-    if ($match.Success) {
-        return $Text.Substring(0, $match.Index) + $replacement +
-            $Text.Substring($match.Index + $match.Length)
-    }
-    return $Text.TrimEnd() + "`r`n`r`n$replacement"
-}
-
-function Set-SectionValue([string] $Text, [string] $Section, [string] $Key, [string] $Value) {
-    $pattern = "(?ms)^\[$([regex]::Escape($Section))\]\r?\n(?<body>.*?)(?=^\[|\z)"
-    $match = [regex]::Match($Text, $pattern)
-    if (-not $match.Success) {
-        return $Text.TrimEnd() + "`r`n`r`n[$Section]`r`n$Key=$Value`r`n"
-    }
-    $body = $match.Groups['body'].Value
-    $keyPattern = "(?im)^$([regex]::Escape($Key))\s*=.*$"
-    if ([regex]::IsMatch($body, $keyPattern)) {
-        $body = [regex]::Replace($body, $keyPattern, "$Key=$Value")
-    } else {
-        $body = $body.TrimEnd("`r", "`n") + "`r`n$Key=$Value`r`n"
-    }
-    return $Text.Substring(0, $match.Index) + "[$Section]`r`n$body" +
-        $Text.Substring($match.Index + $match.Length)
-}
-
 $encoding = [Text.Encoding]::Default
 $logText = [IO.File]::ReadAllText($stagingRuntimeLog, $encoding)
 $installed = [ordered]@{}
@@ -274,8 +193,7 @@ if ($installedMatch.Success) {
     }
 }
 foreach ($file in (Get-ChildItem -LiteralPath $stagingConvertedDirectory -Recurse -File -Filter '*.avi')) {
-    $relativePath = $file.FullName.Substring($stagingConvertedDirectory.Length).TrimStart('\')
-    $installed[$file.Name.ToLowerInvariant()] = Join-Path $convertedDirectory $relativePath
+    $installed[$file.Name.ToLowerInvariant()] = Get-AtlasFinalPath -StagedRoot $stagingConvertedDirectory -FinalRoot $convertedDirectory -StagedPath $file.FullName
 }
 foreach ($name in @('cities.chk', 'captions.chk')) {
     $discPath = Join-Path $drive (Join-Path 'chunks' $name)
@@ -284,7 +202,7 @@ foreach ($name in @('cities.chk', 'captions.chk')) {
 $installedBody = ($installed.GetEnumerator() | Sort-Object Key | ForEach-Object {
     "$($_.Key)=$($_.Value)"
 }) -join "`r`n"
-$logText = Set-SectionBody $logText 'Installed' $installedBody
+$logText = Set-AtlasSectionBody $logText 'Installed' $installedBody
 
 $discPaths = [ordered]@{
     sounds = (Join-Path $drive 'sounds')
@@ -302,12 +220,12 @@ $discPaths = [ordered]@{
     jpeg = $drive
 }
 foreach ($entry in $discPaths.GetEnumerator()) {
-    $logText = Set-SectionValue $logText 'InstallPaths' $entry.Key $entry.Value
+    $logText = Set-AtlasSectionValue $logText 'InstallPaths' $entry.Key $entry.Value
 }
-$logText = Set-SectionValue $logText 'WLPreferences' 'URL' 'https://archive-mode.invalid/atlas.cgi'
-$logText = Set-SectionValue $logText 'Sounds' 'Volume' '5'
-$logText = Set-SectionValue $logText 'Sounds' 'Music' '1'
-$logText = Set-SectionValue $logText 'Sounds' 'Narration' '1'
+$logText = Set-AtlasSectionValue $logText 'WLPreferences' 'URL' 'https://archive-mode.invalid/atlas.cgi'
+$logText = Set-AtlasSectionValue $logText 'Sounds' 'Volume' '5'
+$logText = Set-AtlasSectionValue $logText 'Sounds' 'Music' '1'
+$logText = Set-AtlasSectionValue $logText 'Sounds' 'Narration' '1'
 Copy-Item -LiteralPath $stagingRuntimeLog -Destination "$stagingRuntimeLog.backup-before-windows11-$(Get-Date -Format yyyyMMdd-HHmmss)" -Force
 [IO.File]::WriteAllText($stagingRuntimeLog, $logText, $encoding)
 
@@ -412,12 +330,12 @@ if ($stagedConfig.ShimSha256 -ne $shimHash -or $shimHash -ne $prebuiltShimHash) 
 }
 
 New-Item -ItemType Directory -Path $WorkspaceDirectory, $onlineDirectory, (Join-Path $WorkspaceDirectory 'Tools') -Force | Out-Null
-$runtimeBackupPath = Publish-StagedDirectory $stagingRuntimeDirectory $RuntimeDirectory
+$runtimeBackupPath = Publish-AtlasStagedDirectory -StagedPath $stagingRuntimeDirectory -LivePath $RuntimeDirectory -TransactionId $transactionId
 $runtimePublished = $true
-$convertedBackupPath = Publish-StagedDirectory $stagingConvertedDirectory $convertedDirectory
+$convertedBackupPath = Publish-AtlasStagedDirectory -StagedPath $stagingConvertedDirectory -LivePath $convertedDirectory -TransactionId $transactionId
 $convertedPublished = $true
 if ($archiveNeedsPublish) {
-    $archiveBackupPath = Publish-StagedDirectory $stagingArchiveRoot $archiveRoot
+    $archiveBackupPath = Publish-AtlasStagedDirectory -StagedPath $stagingArchiveRoot -LivePath $archiveRoot -TransactionId $transactionId
     $archivePublished = $true
 }
 
@@ -428,8 +346,7 @@ $stagedWorkspaceFiles = @(Get-ChildItem -LiteralPath $stagingWorkspaceDirectory 
         $relativePath -notlike 'Online Archive\*'
 })
 foreach ($file in $stagedWorkspaceFiles) {
-    $relativePath = $file.FullName.Substring($stagingWorkspaceDirectory.Length).TrimStart('\')
-    $destination = Join-Path $WorkspaceDirectory $relativePath
+    $destination = Get-AtlasFinalPath -StagedRoot $stagingWorkspaceDirectory -FinalRoot $WorkspaceDirectory -StagedPath $file.FullName
     New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
     Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
 }
@@ -438,8 +355,7 @@ $stagedOnlineFiles = @(Get-ChildItem -LiteralPath $stagingOnlineDirectory -Recur
     $relativePath -notlike 'Mirror\*'
 })
 foreach ($file in $stagedOnlineFiles) {
-    $relativePath = $file.FullName.Substring($stagingOnlineDirectory.Length).TrimStart('\')
-    $destination = Join-Path $onlineDirectory $relativePath
+    $destination = Get-AtlasFinalPath -StagedRoot $stagingOnlineDirectory -FinalRoot $onlineDirectory -StagedPath $file.FullName
     New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
     Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
 }

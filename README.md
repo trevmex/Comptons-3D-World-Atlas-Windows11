@@ -1,5 +1,7 @@
 # Compton's 3D World Atlas Deluxe on Windows 11
 
+[![CI](https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11/actions/workflows/static-validation.yml/badge.svg)](https://github.com/trevmex/Comptons-3D-World-Atlas-Windows11/actions/workflows/static-validation.yml)
+
 A reversible, user-local compatibility layer for **Compton's 3D World Atlas Deluxe v3.2** (Windows 95). It converts the disc's obsolete Indeo movies to Microsoft Video 1, preserves their PCM audio, uses the built-in Superplay fullscreen path, and replaces the retired Online service with a complete practical static mirror of the 1997-1999 Internet Archive captures for the Atlas-era 3datlas.com and comptons.com sites.
 
 ## Downloadable Windows installer
@@ -81,10 +83,21 @@ After installation:
 
 The last three groups are interactive/runtime checks. Static installation, archive, and media validation do not require Atlas to be running.
 
+For development, the unit tests do not require the commercial CD or generated media:
+
+```powershell
+node --test tests/Node/Sync-AtlasLocalArchive.test.js
+Invoke-Pester -Path tests/PowerShell -CI
+.\installer\Build-AtlasInstaller.ps1
+```
+
+GitHub Actions runs these tests, validates the x86 shim, builds the installer, and publishes the installer plus checksum for `v*` tags.
+
 ## Repository layout
 
 - `installer/` — Inno Setup source and reproducible installer build script
-- `scripts/` — one-step installer, tool bootstrap, launcher, media conversion, archive sync, and tests
+- `scripts/` — one-step installer, tool bootstrap, launcher, media conversion, archive sync, and reusable installer core helpers
+- `tests/` — Pester and Node.js unit tests that run without proprietary Atlas media
 - `src/` — source for the safe x86 `Wlbrw32.dll` replacement
 - `build/Wlbrw32.dll` — reproducible-project build artifact used when a compiler is unavailable
 - `archive/` — local archive portal templates; generated snapshots are not committed
